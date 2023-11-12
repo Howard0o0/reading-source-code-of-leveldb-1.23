@@ -24,34 +24,35 @@ namespace leveldb {
 
 class Slice;
 
-/* SSTable filter 策略，用于快速查找 User Key 是否在当前 SSTable 中，默认为 Bloom Filter
- * FilterPolicy 一共就两个接口: CreateFilter 和 KeyMayMatch。前者将已排好序的 User Key
- * 添加到 dst 字符串中，而 KeyMayMatch 则是判断 key 是否在 Bloom Filter 中。*/
+/* SSTable filter 策略，用于快速查找 User Key 是否在当前 SSTable 中，默认为
+ * Bloom Filter FilterPolicy 一共就两个接口: CreateFilter 和
+ * KeyMayMatch。前者将已排好序的 User Key 添加到 dst 字符串中，而 KeyMayMatch
+ * 则是判断 key 是否在 Bloom Filter 中。*/
 class LEVELDB_EXPORT FilterPolicy {
- public:
-  virtual ~FilterPolicy();
+   public:
+    virtual ~FilterPolicy();
 
-  // Return the name of this policy.  Note that if the filter encoding
-  // changes in an incompatible way, the name returned by this method
-  // must be changed.  Otherwise, old incompatible filters may be
-  // passed to methods of this type.
-  virtual const char* Name() const = 0;
+    // Return the name of this policy.  Note that if the filter encoding
+    // changes in an incompatible way, the name returned by this method
+    // must be changed.  Otherwise, old incompatible filters may be
+    // passed to methods of this type.
+    virtual const char* Name() const = 0;
 
-  // keys[0,n-1] contains a list of keys (potentially with duplicates)
-  // that are ordered according to the user supplied comparator.
-  // Append a filter that summarizes keys[0,n-1] to *dst.
-  //
-  // Warning: do not change the initial contents of *dst.  Instead,
-  // append the newly constructed filter to *dst.
-  virtual void CreateFilter(const Slice* keys, int n,
-                            std::string* dst) const = 0;
+    // keys[0,n-1] contains a list of keys (potentially with duplicates)
+    // that are ordered according to the user supplied comparator.
+    // Append a filter that summarizes keys[0,n-1] to *dst.
+    //
+    // Warning: do not change the initial contents of *dst.  Instead,
+    // append the newly constructed filter to *dst.
+    virtual void CreateFilter(const Slice* keys, int n,
+                              std::string* dst) const = 0;
 
-  // "filter" contains the data appended by a preceding call to
-  // CreateFilter() on this class.  This method must return true if
-  // the key was in the list of keys passed to CreateFilter().
-  // This method may return true or false if the key was not on the
-  // list, but it should aim to return false with a high probability.
-  virtual bool KeyMayMatch(const Slice& key, const Slice& filter) const = 0;
+    // "filter" contains the data appended by a preceding call to
+    // CreateFilter() on this class.  This method must return true if
+    // the key was in the list of keys passed to CreateFilter().
+    // This method may return true or false if the key was not on the
+    // list, but it should aim to return false with a high probability.
+    virtual bool KeyMayMatch(const Slice& key, const Slice& filter) const = 0;
 };
 
 // Return a new filter policy that uses a bloom filter with approximately

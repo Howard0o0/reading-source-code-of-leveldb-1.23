@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "benchmark_runner.h"
+
 #include "benchmark/benchmark.h"
 #include "benchmark_api_internal.h"
 #include "internal_macros.h"
@@ -104,7 +105,8 @@ BenchmarkReporter::Run CreateRunReport(
       report.max_bytes_used = memory_result.max_bytes_used;
     }
 
-    internal::Finish(&report.counters, results.iterations, seconds, b.threads());
+    internal::Finish(&report.counters, results.iterations, seconds,
+                     b.threads());
   }
   return report;
 }
@@ -141,9 +143,10 @@ class BenchmarkRunner {
                   std::vector<BenchmarkReporter::Run>* complexity_reports_)
       : b(b_),
         complexity_reports(*complexity_reports_),
-        min_time(!IsZero(b.min_time()) ? b.min_time() : FLAGS_benchmark_min_time),
+        min_time(!IsZero(b.min_time()) ? b.min_time()
+                                       : FLAGS_benchmark_min_time),
         repeats(b.repetitions() != 0 ? b.repetitions()
-                                   : FLAGS_benchmark_repetitions),
+                                     : FLAGS_benchmark_repetitions),
         has_explicit_iteration_count(b.iterations() != 0),
         pool(b.threads() - 1),
         iters(has_explicit_iteration_count ? b.iterations() : 1),
@@ -162,7 +165,8 @@ class BenchmarkRunner {
           (b.aggregation_report_mode() &
            internal::ARM_DisplayReportAggregatesOnly);
       run_results.file_report_aggregates_only =
-          (b.aggregation_report_mode() & internal::ARM_FileReportAggregatesOnly);
+          (b.aggregation_report_mode() &
+           internal::ARM_FileReportAggregatesOnly);
       CHECK(b.threads() == 1 || !perf_counters_measurement.IsValid())
           << "Perf counters are not supported in multi-threaded cases.\n";
       CHECK(FLAGS_benchmark_perf_counters.empty() ||
