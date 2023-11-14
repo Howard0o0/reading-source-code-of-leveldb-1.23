@@ -48,13 +48,13 @@ int main() {
     options.filter_policy = leveldb::NewBloomFilterPolicy(10);
 
     leveldb::Status status =
-        leveldb::DB::Open(options, "/Users/smartkeyerror/leveldb", &db);
+        leveldb::DB::Open(options, "/tmp/leveldb", &db);
 
     leveldb::WriteOptions writeOptions;
     writeOptions.sync = true;
 
     int numThreads = 16;
-    int total = 500000;
+    int total = 1024;
 
     std::vector<std::thread> threads(numThreads);
 

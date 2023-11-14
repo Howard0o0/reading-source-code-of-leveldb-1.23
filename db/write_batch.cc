@@ -13,6 +13,24 @@
 //    len: varint32
 //    data: uint8[len]
 
+// Diagrammatic representation of the format of WriteBatch:
+//  - Sequence: A fixed 64-bit integer that represents the sequence number.
+//  - Count: A fixed 32-bit integer that represents the number of records in the batch.
+//  - Records: This is a sequence of records, where each record represents a write operation. The number of records is specified by Count.
+// 
+// |<---- 8 bytes ---->|<-- 4 bytes -->|<--------- Variable Size -------->|
+// +-------------------+---------------+----------------------------------+
+// |    Sequence       |     Count     |              Records             |
+// +-------------------+---------------+----------------------------------+
+
+
+// Each Record is structured as follows:
+//
+// |<-- 1 byte -->|<---- Variable Size ---->|<---- Variable Size ---->|
+// +--------------+-------------------------+-------------------------+
+// |   Type       |        Key              |        Value            |
+// +--------------+-------------------------+-------------------------+
+
 #include "leveldb/write_batch.h"
 
 #include "db/dbformat.h"
