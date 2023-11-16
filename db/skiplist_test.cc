@@ -34,6 +34,30 @@ struct Comparator {
     }
 };
 
+TEST(SkipTest, RandomHeightProbabilityDistribution) {
+    Arena arena;
+    Comparator cmp;
+    SkipList<Key, Comparator> list(cmp, &arena);
+
+    std::map<int, int> height_counts;
+    const int num_samples = 1000000; // Number of samples for the test
+
+    for (int i = 0; i < num_samples; ++i) {
+        int height = list.RandomHeight();
+        height_counts[height]++;
+    }
+
+    // Check the probability distribution and add assertions
+    double expected_probability = 0.75; // Starting probability for height 1
+    const double tolerance = 0.01; // 1% tolerance
+    for (int i = 1; i <= 12; ++i) {
+        double actual_probability = static_cast<double>(height_counts[i]) / num_samples;
+        EXPECT_NEAR(expected_probability, actual_probability, tolerance);
+
+        expected_probability *= 0.25; // Halve the probability for the next height
+    }
+}
+
 TEST(SkipTest, Empty) {
     Arena arena;
     Comparator cmp;

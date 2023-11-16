@@ -295,6 +295,8 @@ if(LEVELDB_BUILD_TESTS)
   set(install_gmock OFF)
   set(build_gmock ON)
 
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-access-control")
+
   # This project is tested using GoogleTest.
   add_subdirectory("third_party/googletest")
 
