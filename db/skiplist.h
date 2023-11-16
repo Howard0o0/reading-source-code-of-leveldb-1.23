@@ -126,7 +126,11 @@ class SkipList {
     }
 
     Node* NewNode(const Key& key, int height);
+
+    // TODO
+    // Write a UT to test the probability distribution.
     int RandomHeight();
+
     bool Equal(const Key& a, const Key& b) const {
         return (compare_(a, b) == 0);
     }
