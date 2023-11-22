@@ -79,29 +79,74 @@ Iterator* MemTable::NewIterator() { return new MemTableIterator(&table_); }
 
 void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
                    const Slice& value) {
-    // Format of an entry is concatenation of:
-    //  key_size     : varint32 of internal_key.size()
-    //  key bytes    : char[internal_key.size()]
-    //  value_size   : varint32 of value.size()
-    //  value bytes  : char[value.size()]
+    // MemTable::Add会将{key, value, sequence, type}编码为一个Entry, 然后插入到SkipList中 
+    // MemTable Entry的格式如下:
+    // |----------------------|----------------------------------|
+    // | Field                | Description                      |
+    // |----------------------|----------------------------------|
+    // | key_size             | varint32 of internal_key.size()  |   <--- head
+    // | internal_key bytes   | char[internal_key.size()]        |
+    // | value_size           | varint32 of value.size()         |
+    // | value bytes          | char[value.size()]               |
+    // |----------------------|----------------------------------|
+    // 
+    // 其中, internal_key的格式如下:
+    // |----------------------|----------------------------------|
+    // | Field                | Description                      |
+    // |----------------------|----------------------------------|
+    // | user_key bytes       | char[user_key.size()]            |   <--- head
+    // | sequence             | 7 Byte                           |
+    // | type                 | 1 Byte                           |
+    // |----------------------|----------------------------------|
+
+    // 计算 key 和 value 的大小
     size_t key_size = key.size();
     size_t val_size = value.size();
+
+    // InternalKey = Key + SequenceNumber(7B) + Type(1B)
+    // 所以 InternalKey 的大小为 key_size + 8
     size_t internal_key_size = key_size + 8;
+    
+    // encoded_len是整个entry的大小
     const size_t encoded_len = VarintLength(internal_key_size) +
                                internal_key_size + VarintLength(val_size) +
                                val_size;
+    
+    // 从arena_中分配内存, 开辟entry的空间, 即buf
     char* buf = arena_.Allocate(encoded_len);
+
+    // 在entry中写入internal_key_size
     char* p = EncodeVarint32(buf, internal_key_size);
+
+    // 在entry中写入key
     std::memcpy(p, key.data(), key_size);
     p += key_size;
+
+    // 在entry中写入sequence与type
     EncodeFixed64(p, (s << 8) | type);
     p += 8;
+
+    // 在entry中写入value_size
     p = EncodeVarint32(p, val_size);
+
+    // 在entry中写入value
     std::memcpy(p, value.data(), val_size);
+
+    // 检查是否刚好将entry填满
     assert(p + val_size == buf + encoded_len);
+
+    // 将entry插入skiplist
     table_.Insert(buf);
 }
 
+// LookupKey格式如下:
+// |----------------------|-------------------------------------------------|
+// | Field                | Description                                     |
+// |----------------------|-------------------------------------------------|
+// | internal_key_size    | varint32 of internal_key.size()                 |   <--- head
+// | user_key bytes       | char[user_key.size()]                           |
+// | sequence and type    | 8 bytes (SequenceNumber(7B) and ValueType(1B))  |
+// |----------------------|-------------------------------------------------|
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
     Slice memkey = key.memtable_key();
     Table::Iterator iter(&table_);
