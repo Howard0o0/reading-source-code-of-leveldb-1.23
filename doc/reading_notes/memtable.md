@@ -131,7 +131,9 @@ class MemTable {
 看下`Add`和`Get`这两个接口分别用于往`MemTable`中添加和查找`key-value`.
 
 `Add`接口接受4个参数, 分别是`sequence`, `type`, `key`和`value`.
-将这4个参数编码为一个`entry`, 插入到`skiplist`中.
+将这4个参数编码为一个`entry`, 然后调用`SkipList::Insert`插入到`skiplist`中.
+`SkipList::insert`的实现见[SkipList::Insert](TODO)
+
 
 ```cpp
 void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
@@ -199,4 +201,127 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
 
 `Get`接口接受一个`LookupKey`对象, 用于查找`key`对应的`value`.
 
-小朋友, 你是否有个问号, 为什么只有`Add`和`Get`两个接口, 没有`Delete`接口呢?
+```c++
+// LookupKey格式如下:
+// |----------------------|-------------------------------------------------|
+// | Field                | Description                                     |
+// |----------------------|-------------------------------------------------|
+// | internal_key_size    | varint32 of internal_key.size()                 |   <--- head
+// | user_key bytes       | char[user_key.size()]                           |
+// | sequence and type    | 8 bytes (SequenceNumber(7B) and ValueType(1B))  |
+// |----------------------|-------------------------------------------------|
+bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
+    // memkey = internal_key_size + user_key + sequence&&type
+    Slice memkey = key.memtable_key();
+
+    // typedef SkipList<const char*, KeyComparator> Table;
+    // iter是一个SkipList::Iterator.
+    // 创建一个skiplist的iterator.
+    Table::Iterator iter(&table_);
+
+    // 把iter移动到memkey所在的位置.
+    iter.Seek(memkey.data());
+
+    // 如果找不到对应的memkey, 则返回false.
+    // 这里其实可以写的简洁些:
+    // if (!iter.Valid()) { return false; }
+    if (iter.Valid()) {
+
+        // entry的format在MemTable::Add()中有详细的描述.
+        // 取出entry
+        const char* entry = iter.key();
+
+        // 取出entry的interal_key_size(key_length), 与user_key的指针(key_ptr)
+        uint32_t key_length;
+        const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+
+        // 检查一下iter seek到的key和lookupkey是不是同一个user_key.
+        if (comparator_.comparator.user_comparator()->Compare(
+                Slice(key_ptr, key_length - 8), key.user_key()) == 0) {
+            
+            // 把type(tag)取出来
+            const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+            switch (static_cast<ValueType>(tag & 0xff)) {
+
+                // iter seek到的key是一个插入或者更新的key,
+                // 把value取出来, return true
+                case kTypeValue: {
+                    Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+                    value->assign(v.data(), v.size());
+                    return true;
+                }
+
+                // iter seek到的key已经被标记为删除了
+                // 将status设为NotFound, return true
+                case kTypeDeletion:
+                    *s = Status::NotFound(Slice());
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+```
+
+小朋友, 你是否有个问号, 为什么`MemTable`只实现了`Add`和`Get`, 没有`Delete`呢?
+
+这是因为 LevelDB 使用的是基于日志结构合并树（Log-Structured Merge-tree，简称 LSM-tree）的存储机制，其对删除操作的处理与传统的键值存储系统有所不同。
+
+1. **删除操作的实现**:
+   - 在 LSM-tree 中，删除操作被视为一种特殊的插入操作。当你想删除一个键时，LevelDB 实际上会在 `MemTable` 中插入一个带有该键的特殊标记（称为墓碑标记，tombstone）。这个标记表示该键已被删除。也就是通过`MemTable::Add`插入一条`kTypeDeletion`类型的记录。
+
+2. **合并过程中的删除处理**:
+   - 当 `MemTable` 被转换到 SSTable（排序字符串表）并进行合并（Compaction）时，带有墓碑标记的键会被用来从较低层的 SSTable 中删除相应的键值对。这意味着删除操作实际上是在合并过程中延迟处理的。
+
+3. **效率和空间考虑**:
+   - 通过这种方式处理删除操作，LevelDB 能够在不立即清理数据的情况下快速响应删除请求，同时在后台合并过程中有效地处理实际的数据删除，这样既提高了效率，又节省了存储空间。
+
+
+`MemTable`除了`Add`和`Get`, 还有一个`NewIterator`与`ApproximateMemoryUsage`两个与数据读写相关的接口.
+
+`NewIterator`用于生成一个`MemTable`的迭代器, 用于遍历`MemTable`中的所有`key-value`.
+实现非常简单, 构造一个`MemTableIterator`对象即可.
+而`MemTableIterator`其实就是把`SkipList`包装了一层. 具体实现见[SkipList::Iterator](TODO)
+
+```cpp
+Iterator* MemTable::NewIterator() { return new MemTableIterator(&table_); }
+
+class MemTableIterator : public Iterator {
+   public:
+    explicit MemTableIterator(MemTable::Table* table) : iter_(table) {}
+
+    MemTableIterator(const MemTableIterator&) = delete;
+    MemTableIterator& operator=(const MemTableIterator&) = delete;
+
+    ~MemTableIterator() override = default;
+
+    bool Valid() const override { return iter_.Valid(); }
+    void Seek(const Slice& k) override { iter_.Seek(EncodeKey(&tmp_, k)); }
+    void SeekToFirst() override { iter_.SeekToFirst(); }
+    void SeekToLast() override { iter_.SeekToLast(); }
+    void Next() override { iter_.Next(); }
+    void Prev() override { iter_.Prev(); }
+    Slice key() const override { return GetLengthPrefixedSlice(iter_.key()); }
+    Slice value() const override {
+        Slice key_slice = GetLengthPrefixedSlice(iter_.key());
+        return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
+    }
+
+    Status status() const override { return Status::OK(); }
+
+   private:
+    // MemTable::Table::Iterator = SkipList::Iterator
+    MemTable::Table::Iterator iter_;
+    std::string tmp_;  // For passing to EncodeKey
+};
+```
+
+`ApproximateMemoryUsage`用于获取`MemTable`的内存占用, 是个预估值.
+实际返回的是`arena_`的内存占用, 因为`MemTable`的所有内存都是通过`arena_`来分配的,
+具体实现见[Arena](TODO)
+
+```cpp
+size_t MemTable::ApproximateMemoryUsage() { return arena_.MemoryUsage(); }
+```
+
+至此, `MemTable`的实现就过完了.

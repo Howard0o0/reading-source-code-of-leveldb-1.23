@@ -572,4 +572,6 @@ hhhh, 就是简单地调用了`MemTable::Add`方法, 把`Record`添加到`memtab
 
 OK, 到这里, `DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value)`的流程就已经走完了.
 
-至于`Memtable`的写入部分, 见[LevelDB中Memtable的实现]()
+至于`Memtable`的写入部分, 见[LevelDB中Memtable的实现](TODO)
+
+

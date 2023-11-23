@@ -310,21 +310,27 @@ inline void SkipList<Key, Comparator>::Iterator::SeekToLast() {
 
 template <typename Key, class Comparator>
 int SkipList<Key, Comparator>::RandomHeight() {
-    // Increase height with probability 1 in kBranching
+    // 概率因子p = 1/kBranching = 1/4.
     static const unsigned int kBranching = 4;
+
+    // 从1开始抛硬币
     int height = 1;
     // (rnd_.Next() % kBranching) == 0
     // 这个条件限制了上层的节点数量为下层节点数量的 1/4
-    // 照此推算，如果根节点的节点数为 1，并且总计有 12 层的话，那么就有 1 + 4 +
-    // 16 + ... + 4^11 个节点 差不多 500
-    // 多万数据，理论上来说应该是不可能写满的，因为 Memory Write Buffer
-    // 有容量限制
     while (height < kMaxHeight && ((rnd_.Next() % kBranching) == 0)) {
+        // rnd_.Next()生成一个随机数,
+        // rnd_.Next() % 4的意思是, 生成一个0~3的随机数,
+        // 0,1,2,3的概率都是1/4.
+        // 所以(rnd_.Next() % 4) == 0成立的概率是1/4.
+        // 也就是说每次抛硬币都有1/4的概率层高+1.
+        // 所以LevelDB的SkipList里, 概率因子是1/4.
         height++;
     }
-    // 下面这两个 assert 是为了什么?
+    
+    // 生成的height必须在[1, kMaxHeight]之间
     assert(height > 0);
     assert(height <= kMaxHeight);
+
     return height;
 }
 
@@ -350,32 +356,45 @@ bool SkipList<Key, Comparator>::KeyIsAfterNode(const Key& key, Node* n) const {
  *    node->next = nullptr;
  *    delete node;
  *
- * 很好的一个设计，在查找的过程中记录一些其他接口所需的信息，最大可能地进行代码复用。*/
+ * 很好的一个设计，在查找的过程中记录一些其他接口所需的信息，最大可能地进行代码复用。
+ * 接口设计的很好, 当传入的prev不为null时, 会将每一层的前驱节点都记录下来,
+ * 便于代码复用.
+ */
 template <typename Key, class Comparator>
 typename SkipList<Key, Comparator>::Node*
 SkipList<Key, Comparator>::FindGreaterOrEqual(const Key& key,
                                               Node** prev) const {
+    // x为查找目标节点
     Node* x = head_;
-    // index 是从 0 开始的，所以需要减去 1
+
+    // index是从0开始的，所以需要减去1
     int level = GetMaxHeight() - 1;
     while (true) {
-        /* 获取当前 level 层的下一个节点 */
+
+        // 获取当前level层的下一个节点
         Node* next = x->Next(level);
 
-        /* KeyIsAfterNode 实际上就是使用 Compactor 比较 Key 和 next->key
-         * 的大小关系。 如果当前待查找节点比 next->key
-         * 还要大的话，那么就继续在同一层向后查找 */
+        // KeyIsAfterNode实际上就是使用 Compactor 比较 Key 和 next->key
+        //      key > next->key:  return true
+        //      key <= next->key: return false
         if (KeyIsAfterNode(key, next)) {
-            // Keep searching in this list
+            // 待查找节点比next->key
+            // 还要大的，那么就继续在同一层向后查找
             x = next;
         } else {
+            // 当前待查找节点比next-key小,
+            // 需要往下一层查找.
+
             // prev 数组主要记录的就是每一层的 prev
             // 节点，主要用于插入和删除时使用
             if (prev != nullptr) prev[level] = x;
+
+            // 如果当前层已经是最底层了，没法再往下查找了，
+            // 则返回当前节点
             if (level == 0) {
                 return next;
             } else {
-                // Switch to next list
+                // 还没到最底层, 继续往下一层查找
                 level--;
             }
         }
@@ -443,17 +462,33 @@ template <typename Key, class Comparator>
 void SkipList<Key, Comparator>::Insert(const Key& key) {
     // TODO(opt): We can use a barrier-free variant of FindGreaterOrEqual()
     // here since Insert() is externally synchronized.
+    // prev是待插入节点的前驱节点
+    // 将prev声明为kMaxHeight层, 多出来的不用
     Node* prev[kMaxHeight];
+
+    // 找到前驱节点
     Node* x = FindGreaterOrEqual(key, prev);
 
     // Our data structure does not allow duplicate insertion
+    // 如果发现key已经存在于SkipList中了, 那是有问题的.
+    // 因为key = sequence + key + value.
+    // 就算key相同, sequence是全局递增的, 不会重复
+    // 使用assert是为了在debug模式下与ut中测试, 
+    // 但是在release模式中, 会被编译器优化掉, 不生效,
+    // 同时也增加了可读性.
     assert(x == nullptr || !Equal(key, x->key));
 
+    // 给新节点按概率随机生成一个层高
     int height = RandomHeight();
+
+    // 如果新节点的层高比SkipList的当前层高还要大, 那么就需要做些更新
     if (height > GetMaxHeight()) {
+        // 假设SkipList的当前层高是4, 新节点的层高是6, 
+        // 那么第5层和第6层的前驱节点都是head(DummyHead)
         for (int i = GetMaxHeight(); i < height; i++) {
             prev[i] = head_;
         }
+
         // It is ok to mutate max_height_ without any synchronization
         // with concurrent readers.  A concurrent reader that observes
         // the new value of max_height_ will see either the old value of
@@ -461,13 +496,23 @@ void SkipList<Key, Comparator>::Insert(const Key& key) {
         // the loop below.  In the former case the reader will
         // immediately drop to the next level since nullptr sorts after all
         // keys.  In the latter case the reader will use the new node.
+        // 原子更新SkipList的当前层高
         max_height_.store(height, std::memory_order_relaxed);
     }
 
+    // 创建新节点
     x = NewNode(key, height);
+
+    // 借助前驱节点prev将新节点插入到SkipList中
     for (int i = 0; i < height; i++) {
         // NoBarrier_SetNext() suffices since we will add a barrier when
         // we publish a pointer to "x" in prev[i].
+
+        // NoBarrier_SetNext()使用的是std::memory_order_relaxed.
+        // SetNext使用的是std::memory_order_release.
+        // 之所以使用NoBarrier_SetNext是因为后面还有个std::memory_order_release,
+        // 保证x->NoBarrier_SetNext不会重排到prev[i]->SetNext之后.
+        // 后面会详细讲解内存屏障与指令重排的关系.
         x->NoBarrier_SetNext(i, prev[i]->NoBarrier_Next(i));
         prev[i]->SetNext(i, x);
     }

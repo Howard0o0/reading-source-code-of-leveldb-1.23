@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <set>
+#include <unordered_map>
 
 #include "leveldb/env.h"
 
@@ -39,7 +40,7 @@ TEST(SkipTest, RandomHeightProbabilityDistribution) {
     Comparator cmp;
     SkipList<Key, Comparator> list(cmp, &arena);
 
-    std::map<int, int> height_counts;
+    std::unordered_map<int, int> height_counts;
     const int num_samples = 1000000; // Number of samples for the test
 
     for (int i = 0; i < num_samples; ++i) {
@@ -47,14 +48,23 @@ TEST(SkipTest, RandomHeightProbabilityDistribution) {
         height_counts[height]++;
     }
 
-    // Check the probability distribution and add assertions
-    double expected_probability = 0.75; // Starting probability for height 1
+    // 误差限制在1%. 
     const double tolerance = 0.01; // 1% tolerance
-    for (int i = 1; i <= 12; ++i) {
-        double actual_probability = static_cast<double>(height_counts[i]) / num_samples;
-        EXPECT_NEAR(expected_probability, actual_probability, tolerance);
 
-        expected_probability *= 0.25; // Halve the probability for the next height
+    // 层高为1的概率为0.75.
+    // 计算过程: 
+    //      概率因子为0.25, 也就是抛硬币正面朝上的概率为0.25, 反面朝上的概率为0.75;
+    //      当抛硬币结果是正面朝上时, 可以将层高加1, 再继续抛硬币.
+    //      从第1层开始抛硬币, 若需要层高为1,
+    //      则第一次抛硬币的结果就应该是方面朝上, 概率为0.75;
+    double expected_probability = 0.75; 
+    for (int i = 1; i <= 12; ++i) {
+        // 计算层高为i的概率
+        double actual_probability = static_cast<double>(height_counts[i]) / num_samples;
+        // 比较实际概率和理论概率, 误差不能超过1%
+        EXPECT_NEAR(expected_probability, actual_probability, tolerance);
+        // 更新+1层的预期概率, 在当前层概率的基础上乘以概率因子(0.25)
+        expected_probability *= 0.25;
     }
 }
 
