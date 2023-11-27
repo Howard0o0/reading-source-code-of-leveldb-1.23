@@ -82,32 +82,46 @@ class SkipList {
        public:
         // Initialize an iterator over the specified list.
         // The returned iterator is not valid.
+        // 传入一个skiplist即可构造一个Iterator
         explicit Iterator(const SkipList* list);
 
         // Returns true iff the iterator is positioned at a valid node.
+        // 判断当前迭代器是否有效,
+        // 等效于c++标准库里的`it != end()`
         bool Valid() const;
 
         // Returns the key at the current position.
         // REQUIRES: Valid()
+        // 返回当前迭代器所指向的节点的key
         const Key& key() const;
 
         // Advances to the next position.
         // REQUIRES: Valid()
+        // 将迭代器指向下一个节点, 
+        // 等效于c++标准库里的`it++`
         void Next();
 
         // Advances to the previous position.
         // REQUIRES: Valid()
+        // 将迭代器指向前一个节点,
+        // 等效于c++标准库里的`it--`
         void Prev();
 
         // Advance to the first entry with a key >= target
+        // 查找第一个大于等于target的节点,
+        // 并将迭代器指向该节点
         void Seek(const Key& target);
 
         // Position at the first entry in list.
         // Final state of iterator is Valid() iff list is not empty.
+        // 将迭代器指向第一个节点,
+        // 等效于c++标准库里的`it = begin()`
         void SeekToFirst();
 
         // Position at the last entry in list.
         // Final state of iterator is Valid() iff list is not empty.
+        // 将迭代器指向最后一个节点,
+        // 等效于c++标准库里的`it = rbegin()`
         void SeekToLast();
 
        private:
@@ -213,12 +227,16 @@ struct SkipList<Key, Comparator>::Node {
 
     // Accessors/mutators for links.  Wrapped in methods so we can
     // add the appropriate barriers as necessary.
+    // 获取第n层的下一个节点
+    // 带Barrier的版本
     Node* Next(int n) {
         assert(n >= 0);
         // Use an 'acquire load' so that we observe a fully initialized
         // version of the returned Node.
         return next_[n].load(std::memory_order_acquire);
     }
+
+    // 设置第n层的下一个节点为x
     void SetNext(int n, Node* x) {
         assert(n >= 0);
         // Use a 'release store' so that anybody who reads through this
@@ -250,6 +268,9 @@ template <typename Key, class Comparator>
 typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(
     const Key& key, int height) {
     // 内存分配时只需要再分配 level - 1 层，因为第 0 层已经预先分配完毕了。
+    // 一共需要分配 height 个next_指针。
+    // sizeof(Node) 分配的是struct Node的大小，其中包含了1个next_指针
+    // sizeof(std::atomic<Node*>) * (height - 1)) 分配 height-1 个next_指针
     char* const node_memory = arena_->AllocateAligned(
         sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
     // 这里是 placement new 的写法，在现有的内存上进行 new object
@@ -258,7 +279,11 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(
 
 template <typename Key, class Comparator>
 inline SkipList<Key, Comparator>::Iterator::Iterator(const SkipList* list) {
+    // 保存skiplist的指针,
+    // 后续的操作都是基于这个指针进行的.
     list_ = list;
+
+    // 将当前节点指针指向一个非法地方
     node_ = nullptr;
 }
 
@@ -430,17 +455,21 @@ template <typename Key, class Comparator>
 typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast()
     const {
     Node* x = head_;
+    // 从最高层找起, level的取值是[0, Height - 1].
     int level = GetMaxHeight() - 1;
     while (true) {
         Node* next = x->Next(level);
         if (next == nullptr) {
             if (level == 0) {
+                // 如果next为nullptr, 且level已经是最底层了, 说明已经是level-0的最后一个节点了,
+                // 也就是我们的目标节点, return
                 return x;
             } else {
-                // Switch to next list
+                // 如果next为nullptr, 但是level还没到最底层, 就降一层
                 level--;
             }
         } else {
+            // 当前层还没有到最后一个节点, 继续往后找
             x = next;
         }
     }

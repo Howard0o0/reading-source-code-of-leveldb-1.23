@@ -15,33 +15,33 @@ SkipList（跳表）、Red-Black Tree（红黑树）和 B+ Tree 都是常用的�
 
 ### SkipList 与 Red-Black Tree（红黑树）相比的优势：
 
-1. **简单性**：
+1. **实现简单**：
    - SkipList 的算法和数据结构比 Red-Black Tree 简单得多，容易理解和实现。对于一些应用场景来说，这使得 SkipList 更易于维护和调试。
 
-2. **并行和锁定**：
+2. **并发程度更高**：
    - 在并发环境中，Skip List 通常更容易实现有效的锁定策略。由于其层级结构，可以更灵活地控制锁的粒度，从而在并发操作中表现更好。
 
-3. **顺序访问**：
+3. **顺序访问友好**：
    - SkipList 对顺序访问（例如范围查询）非常友好，因为它基于链表实现。
 
 ### SkipList 与 B+ Tree 相比的优势：
 
-1. **实现复杂性**：
+1. **实现简单**：
    - SkipList 在实现上通常比 B+ Tree 简单。B+ Tree 的节点分裂和合并操作相对复杂，而 SkipList 的插入和删除操作更直接。
 
-2. **内存使用**：
+2. **内存使用少**：
    - 对于内存中的数据结构，Skip List 可能比 B+ Tree 更高效，因为它不需要预先分配固定大小的节点。Skip List 的节点大小可以根据实际需求动态变化。
 
-3. **动态操作**：
+3. **写操作友好**：
    - SkipList 更适合动态数据集，其中数据项频繁插入和删除，因为 SkipList 不需要复杂的重平衡操作。
 
 ### 综合考虑：
 
 当考虑使用 Skip List、Red-Black Tree 或 B+ Tree 时，应根据具体应用场景的需求来选择。
 
-- 适合使用SkipList: 如果需要在`内存中`快速处理动态数据集，并且`开发时间有限`.
-- 适合使用B+Tree: 需要高效`磁盘存储`和范围查询的场景，B+Tree 更为适合。
-- 适合使用使用RBTree: 需要严格平衡的场景，以保证操作的`最坏情况性能`。
+- 适合使用SkipList: 写多读少的情况。
+- 适合使用B+Tree: 读多写少的情况。
+- 适合使用使用RBTree: 需要严格平衡的场景，以保证操`最坏情况性能`。
 
 ## SkipList的原理
 
@@ -73,17 +73,17 @@ SkipList（跳表）、Red-Black Tree（红黑树）和 B+ Tree 都是常用的�
 - 最大层高`h`. `h`代表了`SkipList`的最大层高, `h`越大, 性能越好, 空间开销越大.
 - 概率因子`p`. `p`表示上层节点数与下层节点数的比例, `p`越接近0.5, 性能越好. 当`p=0.5`时, 就是二分查找.
 
-`SkipList`的平均查找时间复杂度是$O(\log_{1/p} n)$。其中$p$表示上层节点数与下层节点数的比例, $n$为节点总数。
+`SkipList`的平均查找时间复杂度是$O(\log_{1/p} n)$。其中$p$表示上层节点数与下层节点数的比例, 取值区间[0,1], $n$为节点总数。
 
 #### $h$（最大层高）的影响
 
-- 性能: $h$越大，意味着SkipList的层数越多，能够加快查找速度，但垂直移动的步数可能会增加。
-- 空间: 增加$h$会导致空间复杂度上升，因为需要更多的指针来维持更多的层。
+- 性能: $h$越大，意味着SkipList的层数越多，能够加快查找速度。
+- 空间: 增加$h$会导致SkipList的内存开销增加，因为需要更多的指针来维持更多的层。
 
 #### $p$（概率因子）的影响
 
-- 性能: $p$决定了节点在上层出现的概率，影响了水平跳跃的步数。$p$值越大，每一层的节点数越少，平均查找步数越小。
-- 空间: $p$值较小会导致更多的层，这会增加空间复杂度。
+- 性能: $p$决定了节点在上层出现的概率。$p$值越大，每一层的节点数越少，$p$越接近0.5，SkipList的性能越好。
+- 空间: $p$值越小，SkipList内存开销越小。
 
 选择合适的$h$和$p$取决于特定应用的性能要求和可用空间。通常，$h$会选择为$\log_{1/p} n$或稍微高一点，而$p$的常见值为0.5，但可以根据具体的使用场景进行调整。
 
@@ -400,7 +400,7 @@ TEST(SkipTest, RandomHeightProbabilityDistribution) {
 }
 ```
 
-有兴趣测试的同学可以将这段代码拷贝到`LevelDB`的`skiplist_test.cc`中, 但是编译会错误, 因为`SkipList::RandomHeight()`是`private`属性, 在`CMakeLists.txt`里找到`if(LEVELDB_BUILD_TESTS)`所在处, 添加`set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-access-control")`, 如下所示:
+有兴趣测试的同学可以将这段代码拷贝到`LevelDB`的`skiplist_test.cc`中, 但是编译会错误, 因为`SkipList::RandomHeight()`是`private`属性, 在`CMakeLists.txt`里找到`if(LEVELDB_BUILD_TESTS)`所在处, 添加`set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-access-control")`, 就可以访问`private`和`protected`属性的成员了, 如下所示:
 
 ```cmake
 if(LEVELDB_BUILD_TESTS)
@@ -413,5 +413,415 @@ if(LEVELDB_BUILD_TESTS)
 endif(LEVELDB_BUILD_TESTS)
 ```
 
-
 ## SkipList::Contains的实现
+
+看过`SkipList::Insert`之后, `SkipList::Contains`的实现就很简单了.
+通过`FindGreaterOrEqual`第一个大于等于`key`的节点, 再判断一下`key`是否相等.
+
+```c++
+template <typename Key, class Comparator>
+bool SkipList<Key, Comparator>::Contains(const Key& key) const {
+    Node* x = FindGreaterOrEqual(key, nullptr);
+    if (x != nullptr && Equal(key, x->key)) {
+        return true;
+    } else {
+        return false;
+    }
+}
+```
+
+## SkipList::Node的实现
+
+至此, `SkipList`的插入和查找实现就分析完了, 现在我们来看下`SkipList`的`Node`的实现。
+
+我们先通过示意图看一下`SkipList::Node`的样子:
+
+```
++-------------------+
+| Key: key          |
++-------------------+
+| Node*: next_[0]   |
++-------------------+
+| Node*: next_[1]   |
++-------------------+
+| Node*: next_[2]   |
++-------------------+
+| ...               |
++-------------------+
+| Node*: next_[h-1] |
++-------------------+
+```
+
+其中h为该节点的层高.
+
+对比一下我们平时熟悉的单链表节点: 
+
+```
++-------------------+
+| Key: key          |
++-------------------+
+| Node*: next_[0]   |
++-------------------+
+```
+
+其实就是在单链表节点的基础上, 增加了`next_[1]`到`next_[h-1]`这些指针而已.
+
+那我们现在就来看下`SkipList::Node`的代码定义吧👻:
+
+```c++
+template <typename Key, class Comparator>
+struct SkipList<Key, Comparator>::Node {
+    explicit Node(const Key& k) : key(k) {}
+
+    Key const key;
+
+    // 获取第n层的下一个节点
+    // 带Barrier的版本
+    Node* Next(int n);
+
+    // 设置第n层的下一个节点为x
+    // 不带Barrier的版本
+    Node* NoBarrier_Next(int n);
+
+    // 设置第n层的下一个节点为x
+    // 带Barrier的版本
+    void SetNext(int n, Node* x);
+
+    // 设置第n层的下一个节点为x
+    // 不带Barrier的版本
+    void NoBarrier_SetNext(int n, Node* x);
+
+   private:
+    // C语言的一个常用技巧, Flexible Array Member(柔性数组)
+    std::atomic<Node*> next_[1];
+};
+```
+
+我们可以看到, `SkipList::Node`里定义了`Key const key`和`std::atomic<Node*> next_[]`两个数据成员,
+并且实现`Next(n)`和`SetNext(n, x)`两种接口, 分别实现了带`Barrier`和不带`Barrier`的版本.
+`Memory Barrier`的内容比较多, 详情参考[大白话C++之：深入理解多线程内存顺序](https://mp.csdn.net/mp_blog/creation/success/134612152) 
+
+我们下面先来讲什么是`Flexible Array Member(柔性数组)`, 再过一下`SKipList::Node`里4个接口实现.
+
+### Flexible Array Member(柔性数组)
+
+```c++
+struct SkipList<Key, Comparator>::Node {
+    // 结构体的最后一个成员如果是一个数组, 
+    // 那么这个数组就是柔性数组.
+    std::atomic<Node*> next_[];
+};
+```
+
+柔性数组只能是结构体里的最后一个成员, 如果不预先指定数组的初始大小, 那数组的初始大小就是`0`. 
+
+也可以先给柔性数组指定一个初始大小, 比如`LevelDB`里就给`SkipList::Node`的柔性数组指定了一个初始大小`1`, 因为`SkipList::Node`的的层高就是`next_`柔性数组的大小，而`SkipList::Node`的层高最小为`1`, 具体多少需要等到`RandomHeight()`随机生成之后才知道, 所以`SkipList::Node`的柔性数组的初始大小就是`1`.
+
+```c++
+struct SkipList<Key, Comparator>::Node {
+    std::atomic<Node*> next_[1];
+};
+```
+
+那如何调整柔性数组的大小呢? 在结构体初始化的时候。
+
+具体我们参考`SkipList::NewNode`的实现，它是一个工厂函数，封装了`SkipList::Node`的构造过程。
+
+```c++
+template <typename Key, class Comparator>
+typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(
+    const Key& key, int height) {
+    // 内存分配时只需要再分配 level - 1 层，因为第 0 层已经预先分配完毕了。
+    // 一共需要分配 height 个next_指针。
+    // sizeof(Node) 分配的是struct Node的大小，其中包含了1个next_指针
+    // sizeof(std::atomic<Node*>) * (height - 1)) 分配 height-1 个next_指针
+    char* const node_memory = arena_->AllocateAligned(
+        sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
+    // 这里是 placement new 的写法，在现有的内存上进行 new object
+    return new (node_memory) Node(key);
+}
+```
+
+OK，可能会有小伙伴会问了，既然需要一个动态长度的数组，为什么不直接用`std::vector`呢？
+
+因为内存效率更高呀。柔性数组直接作为结构体的一部分, 当我们访问到`SkipList::Node`里任何一个成员时, 柔性数组的内容也都会被加载到`Cache`里。
+
+如果将`SkipList::Node`里的`next_`换成`std::vector`类型，`SkikpList::Node::next_`和`SkipList::Node`就不在一块连续的内存空间了。由于`SkipList::Node`的内存访问不连续，从而导致`Cache`的命中率降低，进而导致性能下降。
+
+### SkipList::Node里各个接口的实现
+
+`SkipList::Node`的就是一个普通的单链表节点, 只不过增加了`next_[1]`到`next_[h-1]`这些指针而已.
+
+`SkipList::Node`的核心操作就是`Next(n)`和`SetNext(n, x)`, 分别实现了带`Barrier`和不带`Barrier`的版本。
+
+什么时候需要`Barrier`，什么时候不需要`Barrier`呢？具体见[SkipList::Insert的实现](#skiplistinsert的实现)
+
+#### SkipList::Node::Next(n)
+
+用于获取第`n`层的下一个节点, 带`Memory Barrier`的版本.
+
+```c++
+Node* Next(int n) {
+    assert(n >= 0);
+    // 返回第n层的下一个节点
+    return next_[n].load(std::memory_order_acquire);
+}
+```
+
+#### SkipList::Node::NoBarrier_Next(n)
+
+用于获取第`n`层的下一个节点, 不带`Memory Barrier`的版本, 只确保读操作的原子性。
+
+```c++
+Node* NoBarrier_Next(int n) {
+    assert(n >= 0);
+    // 返回第n层的下一个节点
+    return next_[n].load(std::memory_order_relaxed);
+}
+```
+
+#### SkipList::Node::SetNext(n, x)
+
+用于设置第`n`层的下一个节点为`x`, 带`Memory Barrier`的版本.
+
+```c++
+void SetNext(int n, Node* x) {
+    assert(n >= 0);
+    // 设置第n层的下一个节点为x
+    next_[n].store(x, std::memory_order_release);
+}
+```
+
+#### SkipList::Node::NoBarrier_SetNext(n, x)
+
+用于设置第`n`层的下一个节点为`x`, 不带`Memory Barrier`的版本, 只确保写操作的原子性。
+
+```c++
+void NoBarrier_SetNext(int n, Node* x) {
+    assert(n >= 0);
+    // 设置第n层的下一个节点为x
+    next_[n].store(x, std::memory_order_relaxed);
+}
+```
+
+## SkipList::Iterator的实现
+
+`SkipList::Iterator`和c++标准库里的`Iterator`作用是一样的, 抽象出一个统一的`Iterator`接口用于遍历某个容器.
+
+如何创建一个`SkipList::Iterator`呢? 以一个`SkipList`对象做为参数, `new`一个`SkipList::Iterator`即可.
+
+```c++
+SkipList<Key, Comparator> skiplist(cmp, &arena);
+auto skiplist_iterator = new SkipList<Key, Comparator>::Iterator(&skiplist);
+```
+
+老规矩, 先来看下`SkipList::Iterator`的定义:
+
+```c++
+template <typename Key, class Comparator>
+class SkipList {
+
+    // ...
+
+    class Iterator {
+       public:
+        // 传入一个skiplist即可构造一个Iterator
+        explicit Iterator(const SkipList* list);
+
+        // 判断当前迭代器是否有效,
+        // 等效于c++标准库里的`it != end()`
+        bool Valid() const;
+
+        // 返回当前迭代器所指向的节点的key
+        const Key& key() const;
+
+        // 将迭代器指向下一个节点, 
+        // 等效于c++标准库里的`it++`
+        void Next();
+
+        // 将迭代器指向前一个节点,
+        // 等效于c++标准库里的`it--`
+        void Prev();
+
+        // 查找第一个大于等于target的节点,
+        // 并将迭代器指向该节点
+        void Seek(const Key& target);
+
+        // 将迭代器指向第一个节点,
+        // 等效于c++标准库里的`it = begin()`
+        void SeekToFirst();
+
+        // 将迭代器指向最后一个节点,
+        // 等效于c++标准库里的`it = rbegin()`
+        void SeekToLast();
+
+       private:
+        const SkipList* list_;
+        Node* node_;
+        // Intentionally copyable
+    };
+
+    // ...
+};
+```
+
+`SkipList::Iterator`的用法和c++标准库里的`Iterator`是一样的, 只是接口的名字不一样.
+我们来简单看下`SkipList::Iterator`的使用:
+
+```c++
+SkipList<Key, Comparator> skiplist(cmp, &arena);
+auto skiplist_iterator = new SkipList<Key, Comparator>::Iterator(&skiplist);
+
+// 正序遍历skiplist
+for (skiplist_iterator->SeekToFirst(); skiplist_iterator->Valid(); skiplist_iterator->Next()) {
+    // do something
+    std::cout << skiplist_iterator->key() << std::endl;
+}
+
+// 逆序遍历skiplist
+for (skiplist_iterator->SeekToLast(); skiplist_iterator->Valid(); skiplist_iterator->Prev()) {
+    // do something
+    std::cout << skiplist_iterator->key() << std::endl;
+}
+```
+
+### SkipList::Iterator的构造函数
+
+```c++
+template <typename Key, class Comparator>
+inline SkipList<Key, Comparator>::Iterator::Iterator(const SkipList* list) {
+    // 保存skiplist的指针,
+    // 后续的操作都是基于这个指针进行的.
+    list_ = list;
+
+    // 当前节点指针指向null
+    node_ = nullptr;
+}
+```
+
+### SkipList::Iterator::Valid的实现
+
+没啥好说的, 如果是`Valid`的, 当前节点指针需要指向一个非空的地方.
+
+```c++
+template <typename Key, class Comparator>
+inline bool SkipList<Key, Comparator>::Iterator::Valid() const {
+    // 
+    return node_ != nullptr;
+}
+```
+
+### SkipList::Iterator::Key的实现
+
+直接把当前节点的key取出返回即可.
+
+```c++
+template <typename Key, class Comparator>
+inline const Key& SkipList<Key, Comparator>::Iterator::key() const {
+    assert(Valid());
+    return node_->key;
+}
+```
+
+### SkipList::Iterator::Next的实现
+
+`Iterator`始终在`SkipList`的最底层活动, 所以总是使用`node_->Next(0)`来获取下一个节点.
+
+```c++
+template <typename Key, class Comparator>
+inline void SkipList<Key, Comparator>::Iterator::Next() {
+    assert(Valid());
+    node_ = node_->Next(0);
+}
+```
+
+### SkipList::Iterator::Prev的实现
+
+`Prev`的实现就比较有意思了, 因为`SkipList::Node`只有`next`指针, 没有`prev`指针, 所以`Prev`操作是通过查找当前节点的前驱节点实现的.
+
+这是一个需要注意的地方, 逆序遍历`SkipList`开销就会比顺序遍历`SkipList`大的多, 因为每次`Prev`操作都是一个查找操作, 复杂度为$O(\log N)$; 而`Next`操作的复杂度为$O(1)$.
+
+```c++
+template <typename Key, class Comparator>
+inline void SkipList<Key, Comparator>::Iterator::Prev() {
+    // SkipList::Node只有next指针, 没有prev指针,
+    // 所以Prev操作是通过查找当前节点的前驱节点实现的.
+    assert(Valid());
+    node_ = list_->FindLessThan(node_->key);
+    if (node_ == list_->head_) {
+        node_ = nullptr;
+    }
+}
+```
+
+### SkipList::Iterator::Seek的实现
+
+其实就是`SkipList::FindGreaterOrEqual`.
+
+```c++
+template <typename Key, class Comparator>
+inline void SkipList<Key, Comparator>::Iterator::Seek(const Key& target) {
+    node_ = list_->FindGreaterOrEqual(target, nullptr);
+}
+```
+
+### SkipList::Iterator::SeekToFirst的实现
+
+将当前节点指向`SkipList`的第一个节点.
+
+```c++
+template <typename Key, class Comparator>
+inline void SkipList<Key, Comparator>::Iterator::SeekToFirst() {
+    node_ = list_->head_->Next(0);
+}
+```
+
+### SkipList::Iterator::SeekToLast的实现
+
+和`SkipList::Iterator::SeekToFirst`不一样, `SkipList`只有`DummyHead`头节点, 但没有`DummyTail`尾节点, 所以`SkipList::Iterator::SeekToLast`的实现需要特殊处理一下.
+
+通过调用`SkipList::FindLast`找到最后一个节点.
+
+```c++
+template <typename Key, class Comparator>
+inline void SkipList<Key, Comparator>::Iterator::SeekToLast() {
+    node_ = list_->FindLast();
+    if (node_ == list_->head_) {
+        node_ = nullptr;
+    }
+}
+```
+
+再继续看下`SkipList::FindLast`的实现:
+
+从最高层开始, 一直找到该层的最后一个节点, 然后降一层, 继续找到该层的最后一个节点... 直到最底层的最后一个节点.
+
+为什么不直接从最底层的指针一直往后找呢? 因为这样的复杂度为$O(N)$, 而从最高层开始找, 复杂度为$O(\log N)$.
+
+```c++
+template <typename Key, class Comparator>
+typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast()
+    const {
+    Node* x = head_;
+    // 从最高层找起, level的取值是[0, Height - 1].
+    int level = GetMaxHeight() - 1;
+    while (true) {
+        Node* next = x->Next(level);
+        if (next == nullptr) {
+            if (level == 0) {
+                // 如果next为nullptr, 且level已经是最底层了, 说明已经是level-0的最后一个节点了,
+                // 也就是我们的目标节点, return
+                return x;
+            } else {
+                // 如果next为nullptr, 但是level还没到最底层, 就降一层
+                level--;
+            }
+        } else {
+            // 当前层还没有到最后一个节点, 继续往后找
+            x = next;
+        }
+    }
+}
+```
+
+至此, `SkipList::Iterator`就分析完了。
