@@ -69,7 +69,7 @@ InternalKey = Sequence + Type + UserKey
 除了`comparator_`, 构造函数中还会初始化`refs_`和`table_`.
 `refs_`代表该`memtable`的引用次数, 当`refs_`为0时, 该`memtable`将会被销毁。
 `table_`是一个`SkipList`, 用于实际存储`memtable`中的`key-value`数据。
-之所以为什么要将`SkipList`封装在`memtable`中, 而不是直接使用`SkipList`, 是为了灵活性. 抽象出一个`Memtable`, `SkipList`是其中一种实现. 用户如果有特殊需求, 可以将`SkipList`替换成其他的数据结构, 比如`B+Tree`等.
+之所以为什么要将`SkipList`封装在`memtable`中, 而不是直接使用`SkipList`, 是为了灵活性. 抽象出一个`Memtable`, `SkipList`是其中一种实现. 用户如果有特殊需求, 可以将`SkipList`替换成其他的数据结构, 比如`B+Tree`等. SkipList的内容比较多，详情移步[大白话解析LevelDB：SkipList（跳表）](https://blog.csdn.net/sinat_38293503/article/details/134643628?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22134643628%22%2C%22source%22%3A%22sinat_38293503%22%7D)
 
 至于为什么要将构造函数声明为`explicit`, 是为了防止隐式转换, 保证`Memtable`只能通过显式的方式来构造.
 我们看个例子, 如果没有将构造函数声明为`explicit`, 有些错误就会因为隐式转换而变成合法的, 编译阶段无法发现错误.
@@ -132,7 +132,7 @@ class MemTable {
 
 `Add`接口接受4个参数, 分别是`sequence`, `type`, `key`和`value`.
 将这4个参数编码为一个`entry`, 然后调用`SkipList::Insert`插入到`skiplist`中.
-`SkipList::insert`的实现见[SkipList::Insert](TODO)
+`SkipList::insert`的实现见[SkipList::Insert](https://blog.csdn.net/sinat_38293503/article/details/134643628?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22134643628%22%2C%22source%22%3A%22sinat_38293503%22%7D#SkipListInsert_207)
 
 
 ```cpp
@@ -281,7 +281,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
 
 `NewIterator`用于生成一个`MemTable`的迭代器, 用于遍历`MemTable`中的所有`key-value`.
 实现非常简单, 构造一个`MemTableIterator`对象即可.
-而`MemTableIterator`其实就是把`SkipList`包装了一层. 具体实现见[SkipList::Iterator](TODO)
+而`MemTableIterator`其实就是把`SkipList`包装了一层. 具体实现见[SkipList::Iterator的实现](https://blog.csdn.net/sinat_38293503/article/details/134643628?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22134643628%22%2C%22source%22%3A%22sinat_38293503%22%7D#SkipListIterator_601)
 
 ```cpp
 Iterator* MemTable::NewIterator() { return new MemTableIterator(&table_); }
