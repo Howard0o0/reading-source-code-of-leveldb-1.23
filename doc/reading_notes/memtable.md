@@ -54,6 +54,8 @@ class MemTable {
 
 先从简单的看起, 来看下Memtable的构造函数.
 
+## MemTable的构造函数
+
 ```c++
 explicit MemTable(const InternalKeyComparator& comparator) \
     : comparator_(comparator), refs_(0), table_(comparator_, &arena_) {}
@@ -70,6 +72,8 @@ InternalKey = Sequence + Type + UserKey
 `refs_`代表该`memtable`的引用次数, 当`refs_`为0时, 该`memtable`将会被销毁。
 `table_`是一个`SkipList`, 用于实际存储`memtable`中的`key-value`数据。
 之所以为什么要将`SkipList`封装在`memtable`中, 而不是直接使用`SkipList`, 是为了灵活性. 抽象出一个`Memtable`, `SkipList`是其中一种实现. 用户如果有特殊需求, 可以将`SkipList`替换成其他的数据结构, 比如`B+Tree`等. SkipList的内容比较多，详情移步[大白话解析LevelDB：SkipList（跳表）](https://blog.csdn.net/sinat_38293503/article/details/134643628?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22134643628%22%2C%22source%22%3A%22sinat_38293503%22%7D)
+
+### explicit关键字的作用
 
 至于为什么要将构造函数声明为`explicit`, 是为了防止隐式转换, 保证`Memtable`只能通过显式的方式来构造.
 我们看个例子, 如果没有将构造函数声明为`explicit`, 有些错误就会因为隐式转换而变成合法的, 编译阶段无法发现错误.
@@ -100,10 +104,14 @@ int main() {
 }
 ```
 
+### 为什么MemTable不允许拷贝
+
 还有两个`MemTable`的构造函数, 被`delete`禁用了, 也就是告诉其他人`MemTable`不允许拷贝和赋值.
 为什么不允许拷贝`MemTable`对象呢? 是因为`MemTable`的内存空间是通过内部的`Arena arena_`来进行管理的.
 `Arena`是一个内存池, 如果`MemTable`对象被拷贝了, 那么两个`MemTable`对象就会共享同一个`Arena`对象, 造成混乱。
 `MemTable`若要支持拷贝, 需要将`arena_`深拷贝, 大大增加了实现的复杂度.
+
+## MemTable::Ref 和 MemTable::Unref
 
 `MemTable`的构造讲完了, 现在来看下`Ref`和`Unref`这两个接口.
 `MemTable`的内部有一个`refs_`变量, 用于记录当前`MemTable`的引用计数.
@@ -128,7 +136,11 @@ class MemTable {
 };
 ```
 
+## MemTable::Add 和 MemTable::Get
+
 看下`Add`和`Get`这两个接口分别用于往`MemTable`中添加和查找`key-value`.
+
+### MemTable::Add
 
 `Add`接口接受4个参数, 分别是`sequence`, `type`, `key`和`value`.
 将这4个参数编码为一个`entry`, 然后调用`SkipList::Insert`插入到`skiplist`中.
@@ -199,6 +211,8 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
 }
 ```
 
+### MemTable::Get
+
 `Get`接口接受一个`LookupKey`对象, 用于查找`key`对应的`value`.
 
 ```c++
@@ -263,6 +277,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
 }
 ```
 
+## 为什么没有MemTable::Delete
+
 小朋友, 你是否有个问号, 为什么`MemTable`只实现了`Add`和`Get`, 没有`Delete`呢?
 
 这是因为 LevelDB 使用的是基于日志结构合并树（Log-Structured Merge-tree，简称 LSM-tree）的存储机制，其对删除操作的处理与传统的键值存储系统有所不同。
@@ -276,8 +292,9 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
 3. **效率和空间考虑**:
    - 通过这种方式处理删除操作，LevelDB 能够在不立即清理数据的情况下快速响应删除请求，同时在后台合并过程中有效地处理实际的数据删除，这样既提高了效率，又节省了存储空间。
 
-
 `MemTable`除了`Add`和`Get`, 还有一个`NewIterator`与`ApproximateMemoryUsage`两个与数据读写相关的接口.
+
+## MemTable::NewIterator
 
 `NewIterator`用于生成一个`MemTable`的迭代器, 用于遍历`MemTable`中的所有`key-value`.
 实现非常简单, 构造一个`MemTableIterator`对象即可.
@@ -316,9 +333,11 @@ class MemTableIterator : public Iterator {
 };
 ```
 
+## MemTable::ApproximateMemoryUsage
+
 `ApproximateMemoryUsage`用于获取`MemTable`的内存占用, 是个预估值.
 实际返回的是`arena_`的内存占用, 因为`MemTable`的所有内存都是通过`arena_`来分配的,
-具体实现见[Arena](TODO)
+具体实现见[Arena](https://blog.csdn.net/sinat_38293503/article/details/134697829)
 
 ```cpp
 size_t MemTable::ApproximateMemoryUsage() { return arena_.MemoryUsage(); }

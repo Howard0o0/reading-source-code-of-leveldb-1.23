@@ -53,6 +53,7 @@ char* EncodeVarint64(char* dst, uint64_t value);
 // REQUIRES: dst has enough space for the value being written
 
 /* 简单地将 unint32 写入至 dst 中，并没有使用 varint */
+// 将value编码成4字节，并写入dst中
 inline void EncodeFixed32(char* dst, uint32_t value) {
     /* 这里补充一个 static_cast 和 reinterpret_cast 之间的区别
      *
@@ -71,6 +72,8 @@ inline void EncodeFixed32(char* dst, uint32_t value) {
      * 对目标对象的内存进行重新解释。此时我们可以将一个 long long
      * 对象转换成一个指针类型，或者是将一个 char * 转换成一个 int *。
      * */
+    
+
     uint8_t* const buffer = reinterpret_cast<uint8_t*>(dst);
 
     /* 依次将 value 的 4 字节写入至 buffer 中，也就是写入到 dst 中。

@@ -1,7 +1,12 @@
-# leveldb 的写入流程 -- 写memtable
 
-leveldb写入kv的接口为`virtual leveldb::Status leveldb::DB::Put(const leveldb::WriteOptions &options, const leveldb::Slice &key, const leveldb::Slice &value)`
+
+# 把Key-Value写入MemTable
+
+## 写MemTable入口: DB::Put
+
+LevelDB写入kv的接口为`virtual leveldb::Status leveldb::DB::Put(const leveldb::WriteOptions &options, const leveldb::Slice &key, const leveldb::Slice &value)`。
 其实现如下：
+
 ```c++
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
@@ -12,10 +17,12 @@ Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
 }
 ```
 
-`DB::Put`只干两件事情
+`DB::Put`只干了两件事情：
 
 1. 将key-value放入一个`WriteBatch`中
 2. 调用`DB::Write`将`WriteBatch`写入数据库
+
+### 将key-value放入`WriteBatch`中
 
 将key-value放入`WriteBatch`的实现如下：
 ```c++
@@ -28,141 +35,20 @@ void WriteBatch::Put(const Slice& key, const Slice& value) {
 ```
 
 `WriteBatch`本质是一个`std::string`, `rep_`是数据本身, `WriteBatch`封装了一些方法来对`rep_`的内容进行插入和读取.
-`rep_`的格式如下：
-
-```
-|<---- 8 bytes ---->|<-- 4 bytes -->|<--------- Variable Size -------->|
-+-------------------+---------------+----------------------------------+
-|    Sequence       |     Count     |              Records             |
-+-------------------+---------------+----------------------------------+
-```
-
-`Sequence`是一个64位的整数。在LevelDB 中，`Sequence`是一个非常关键的概念，用于实现其存储和检索机制。每个存储在 LevelDB 中的键值对都与一个唯一的序列号（sequence number）相关联。序列号的作用和重要性可以从以下几个方面理解：
-
-- 版本控制
-    - LevelDB 支持多版本并发控制（MVCC），即允许存储同一个键的多个版本。
-    - 序列号用于标记同一个键在不同时间点的值。当存储相同键的新数据时，LevelDB 会分配一个新的序列号，这使得LevelDB能够保留同一键的历史版本。
-- 读写隔离
-    - 在并发环境中，LevelDB 使用序列号来保证读写操作的隔离性。
-    - 通过检查序列号，LevelDB 能够为读操作提供一个一致的视图，即使在有其他写入操作发生的时候。
-- 事务日志(WAL)
-    - LevelDB 使用写前日志（Write-Ahead Logging，WAL）来保证数据的持久性。每个写入操作先写入日志，再写入存储结构。
-    - 序列号在这里用于确保即使在系统崩溃的情况下，也能正确地恢复数据，并保持数据的一致性。
-- 压缩和合并(Compaction)
-    - LevelDB 定期进行压缩和合并操作，以减少存储空间的使用，并优化读取性能。
-    - 在这个过程中，序列号帮助 LevelDB 确定哪些旧版本的数据可以被安全删除。
-- 快照(Snapshot)
-    - LevelDB 支持快照功能，允许用户获取特定时间点的数据库状态。
-    - 序列号用于实现这一点，通过记录创建快照时的序列号，LevelDB 可以提供该时刻所有键的视图。
-
-`Count`是一个32位的定长整数(`fixed32`)，表示`rep_`中`Records`的数量.
-`fixed32` 编码方式在 LevelDB 中用于存储固定长度的 32 位（4 字节）整数。以下是对这种编码方式的步骤说明。
-
-**整数转换为二进制**
-
-- 将整数转换为 32 位的二进制形式。
-- 例如，十进制数字 `263` 可以表示为二进制 `00000000 00000000 00000001 00000111`。
-
-**固定长度存储**
-
-- 无论整数大小如何，`fixed32` 都将其存储为 32 位（4 字节）。
-- 上面的示例中，`263` 将存储为 `00 00 01 07`（每个数字表示一个字节）。
-
-**编码结果**
-
-- 对于数字 `263`，其 `fixed32` 编码将是：`00 00 01 07`。
-
-`fixed32` 编码提供了一种简单且高效的方式来存储固定大小的整数，保证了存储空间的一致性和预测性。这在需要处理大量固定大小数据的数据库系统中尤为重要。
-
-
-`Records`是一个序列，每个元素是一个`Record`，`Record`的格式如下：
-
-```
-|<-- 1 byte -->|<---- Variable Size ---->|<---- Variable Size ---->|
-+--------------+-------------------------+-------------------------+
-|   Type       |        Key              |        Value            |
-+--------------+-------------------------+-------------------------+
-```
-
-其中`Type`是一个1字节的整数，表示`Record`的类型。`Type`的取值如下
-
-```c++
-enum ValueType { kTypeDeletion = 0x0, kTypeValue = 0x1 };
-```
+`rep_`的格式移步[这里](https://editor.csdn.net/md?not_checkout=1&spm=1001.2101.3001.5352&articleId=134739340#WriteBatch_33)。
 
 对于key-value的操作, 有`Add`, `Put`, `Delete`三种.
-leveldb总是将key-value的操作以日志追加的形式写入磁盘, 
-对于每个key-value的操作, 都会生成一个`Record`,并且用一个`Type`表示该`Record`的操作类型.
-`kTypeValue`表示该`Record`是一个新增的key-value, 对应的可能是`Add`与`Put`操作.
-`kTypeDeletion`表示该`Record`是一个删除的key, 对应的是`Delete`操作.
-leveldb将`Put`视为`Add`操作, 后期会进行数据合并的处理.
-对于同一个key来说, leveldb只会保存最新的key-value, 旧的key-value会被删除.
 
-`Key`和`Value`都是一个变长的字符串, 其格式如下:
+leveldb总是将key-value的操作以日志追加的形式写入磁盘, 对于每个key-value的操作, 都会生成一个`Record`,并且用一个`Type`表示该`Record`的操作类型.
 
-```
-|<-- Variable Size -->|<---- Variable Size ---->|
-+---------------------+-------------------------+
-|   Length            |        Data             |
-+---------------------+-------------------------+
-```
+`Type`的取值如下：
 
-`Length`是一个`Varint`, 表示后面`Data`的长度。
-LevelDB 使用`varint`编码来高效存储整数。以下是一个对数字 `300` 进行`varint`编码的步骤说明。
+- `kTypeValue`表示该`Record`是一个新增的key-value, 对应的可能是`Add`与`Put`操作.
+- `kTypeDeletion`表示该`Record`是一个删除的key, 对应的是`Delete`操作.
 
-**转换为二进制**
+leveldb将`Put`视为`Add`操作, 后期会进行数据合并的处理。对于同一个key来说, leveldb只会保存最新的key-value, 旧的key-value会被删除.
 
-- 十进制 `300` 在二进制中表示为 `100101100`.
-
-**划分为 7 位一组**
-
-- 从低位开始，每 7 位分为一组：`0010110` 和 `0000100`.
-
-**添加控制位**
-
-- 每组前添加一位，`1` 表示后面还有数据，`0` 表示这是最后一个字节。
-- `0010110` -> `10010110` （因为后面还有字节，所以在前面加 `1`）
-- `0000100` -> `00000100` （这是最后一个字节，所以在前面加 `0`）
-
-**Varint 编码结果**
-
-- `10010110 00000100`
-
-在这个例子中，数字 `300` 被编码为两个字节：`10010110 00000100`。这种编码方法对于 LevelDB 来说非常重要，因为它可以节省存储空间并提高处理效率。通过 varint 编码，LevelDB 能够根据实际数值的大小动态地调整使用的字节数，这对于数据库系统来说是一个很大的优势。
-
-`Data`中则是`Key`或`Value`的内容.
-
-
-ok, 至此, `WriteBatch`的格式已经分析完毕.
-我们看到leveldb使用了两种整数编码方式, `fixed32`和`varint`, 两种编码方式都是为了节省存储空间并提高处理效率.
-那为什么要使用到两种编码方式呢, 他们适用的场景不同.
-
-**`fixed32` 编码**
-
-**定义**:
-- `fixed32` 是一种固定长度的编码方式，使用 32 位（4 字节）来表示一个整数。
-
-**适用场景**:
-- **固定大小的数据**: 当数据大小固定且需要预测存储空间时，`fixed32` 非常适用。
-- **性能要求**: 对于性能敏感的应用，读取固定长度的数据通常比可变长度数据更快。
-
-**`varint`编码**
-
-**定义**:
-- `varint` 是一种可变长度的整数编码方式，根据整数大小使用不同数量的字节。
-
-**适用场景**:
-- **节省空间**: 当存储的整数大小变化较大时，`varint` 编码能有效节省空间。
-- **数据大小波动大**: 在数据大小不固定且倾向于较小的情况下，使用 `varint` 可以减少存储空间的浪费。
-
-**为什么需要两种编码**
-
-- **优化存储和性能**: 通过选择适合每种数据特征的编码方式，LevelDB 在存储效率和读写性能之间实现平衡。
-- **灵活性和适应性**: LevelDB 处理多种类型和大小的数据，这两种编码方式提供了更大的灵活性和适应性。
-
-使用 `fixed32` 和 `varint` 两种编码方法使 LevelDB 能够高效且灵活地处理各种数据，满足不同场景的需求。
-
-好了，关于`WriteBatch`的编码方式就讲到这, 回到`DB::Put`的第一步, 将key-value放入一个`WriteBatch`中.
+回到`DB::Put`的第一步, 将key-value放入一个`WriteBatch`中.
 
 ```c++
 Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
@@ -185,6 +71,8 @@ void WriteBatch::Put(const Slice& key, const Slice& value) {
 2. 将`kTypeValue`放入`WriteBatch`的`rep_`中
 3. 将`key`放入`WriteBatch`的`rep_`中
 4. 将`value`放入`WriteBatch`的`rep_`中
+
+### 调用`DB::Write`将`WriteBatch`写入数据库
 
 ok, `DB::Put`里的第一步已经分析完毕, 接下来看第二步, 调用`DB::Write`将`WriteBatch`写入数据库.
 
@@ -572,6 +460,6 @@ hhhh, 就是简单地调用了`MemTable::Add`方法, 把`Record`添加到`memtab
 
 OK, 到这里, `DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value)`的流程就已经走完了.
 
-至于`Memtable`的写入部分, 见[LevelDB中Memtable的实现](TODO)
+至于`Memtable`的写入部分, 见[LevelDB中Memtable的实现](https://blog.csdn.net/sinat_38293503/article/details/134698711)
 
 

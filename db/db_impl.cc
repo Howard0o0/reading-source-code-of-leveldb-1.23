@@ -514,10 +514,26 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
 Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
                                 Version* base) {
     mutex_.AssertHeld();
+    // 开始计时SST的构建时间，
+    // 会记录到Debug Log里。
     const uint64_t start_micros = env_->NowMicros();
+
+    // 创建一个FileMetaData对象，用于记录SST的元数据信息。
+    // 比如SST的编号、大小、最小Key、最大Key等。
     FileMetaData meta;
+    // NewFileNumber()的实现很简单，就是一个自增的计数器。
     meta.number = versions_->NewFileNumber();
+
+    // 把新SST的编号记录到pending_outputs_中，
+    // 是为了告诉其他线程，这个SST正在被构建中，
+    // 不要把它误删除了。
+    // 比如手动Compact的过程中会检查pending_outputs_，
+    // 如果待压缩的目标SST文件存在于pending_outputs_中，
+    // 就终止Compact。
     pending_outputs_.insert(meta.number);
+
+    // 创建一个MemTable的Iterator，
+    // 用于读取MemTable中的所有KV数据。
     Iterator* iter = mem->NewIterator();
     Log(options_.info_log, "Level-0 table #%llu: started",
         (unsigned long long)meta.number);
@@ -525,7 +541,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
     Status s;
     {
         mutex_.Unlock();
-        /* 1. 根据 Immutable MemTable 构建 SSTable */
+        // 遍历 MemTable 中的所有 KV 数据，将其写入 SSTable 文件中
         s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
         mutex_.Lock();
     }
@@ -534,16 +550,21 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
         (unsigned long long)meta.number, (unsigned long long)meta.file_size,
         s.ToString().c_str());
     delete iter;
+
+    // SST已经构建好了，从pending_outputs_中移除。
     pending_outputs_.erase(meta.number);
 
     // Note that if file_size is zero, the file has been deleted and
     // should not be added to the manifest.
     int level = 0;
+    // s.ok()但是meta.file_size为0的情况很罕见，但存在。
+    // 比如用户传入了特定的过滤逻辑，把MemTable的所有kv都过滤掉了，
+    // 此时BuildTable成功，但是SST的内容为空。
     if (s.ok() && meta.file_size > 0) {
         const Slice min_user_key = meta.smallest.user_key();
         const Slice max_user_key = meta.largest.user_key();
         if (base != nullptr) {
-            /* 2. 决定将 New SSTable 推送到哪一层 */
+            // 挑选出一个合适的 level，用于放置新的 SSTable
             level =
                 base->PickLevelForMemTableOutput(min_user_key, max_user_key);
         }
@@ -567,32 +588,60 @@ void DBImpl::CompactMemTable() {
     mutex_.AssertHeld();
     assert(imm_ != nullptr);
 
-    // Save the contents of the memtable as a new Table
+    // 创建一个VersionEdit对象，用于记录从当前版本到新版本的所有变化。
+    // 在CompactMemTable中主要是记录新生成的SSTable文件的MetaData.
     VersionEdit edit;
+
+    // 获取当前版本。
+    // LevelDB维护了一个VersionSet，是一个version的链表。
+    // 将VersionEdit Apply到base上，就可以得到一个新的version.
     Version* base = versions_->current();
+
+    // 增加base的引用计数，防止其他线程将该version删除。
+    // 比如Compact SST的过程中，会将一些version合并成一个version，
+    // 并删除中间状态的version。
     base->Ref();
-    /* 生成新的 SSTable，并将其推送至某一个 level */
+
+    // 将MemTable保存成新的SSTable文件，
+    // 并将新的SSTable文件的MetaData记录到edit中。
     Status s = WriteLevel0Table(imm_, &edit, base);
+
+    // base可以释放了。
     base->Unref();
 
+    // 再检查下是不是在shutdown，
+    // 如果在shutdown的话就及时结束当前的CompactMemTable。
     if (s.ok() && shutting_down_.load(std::memory_order_acquire)) {
         s = Status::IOError("Deleting DB during memtable compaction");
     }
 
-    // Replace immutable memtable with the generated Table
     if (s.ok()) {
-        /* 记录 VersionEdit */
+        // SST构建成功，
+        // 把WAL相关信息记录到VersionEdit中。
+
+        // 新的SST创建好后，旧的WAL不再需要了，
+        // 所以设置为0
         edit.SetPrevLogNumber(0);
+        // 设置新的SST对应的WAL编号
         edit.SetLogNumber(logfile_number_);  // Earlier logs no longer needed
-        /* 将最新的 VersionEdit 应用于 VersionSet 中 */
+        
+        // 将VersionEdit应用到当前Version上，
+        // 产生一个新的Version，加入VersionSet中，
+        // 并将新的Version设置为当前Version。
         s = versions_->LogAndApply(&edit, &mutex_);
     }
 
     if (s.ok()) {
-        // Commit to the new state
+        // 新Version构建成功，
+        // 则Compact MemTable就完成了，
+        // 可以做一些清理工作了。         
+
+        // 将Immutable MemTable释放
         imm_->Unref();
         imm_ = nullptr;
         has_imm_.store(false, std::memory_order_release);
+
+        // 移除不再需要的文件
         RemoveObsoleteFiles();
     } else {
         RecordBackgroundError(s);

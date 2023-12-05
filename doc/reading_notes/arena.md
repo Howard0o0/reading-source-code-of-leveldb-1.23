@@ -200,3 +200,82 @@ char* Arena::AllocateAligned(size_t bytes) {
 
 ## MemoryUsage()的实现
 
+`MemoryUsage()`很简单，直接返回`memory_usage_`即可。 
+
+```c++
+size_t MemoryUsage() const {
+    return memory_usage_.load(std::memory_order_relaxed);
+}
+```
+
+在`AllocateNewBlock`中，每次分配内存都会更新`memory_usage_`。
+
+```c++
+char* Arena::AllocateNewBlock(size_t block_bytes) {
+    // ...
+
+    // 记录分配的内存量。
+    memory_usage_.fetch_add(block_bytes + sizeof(char*),
+                            std::memory_order_relaxed);
+    // ...
+}
+```
+
+为什么更新`memory_usage_`和读取`memory_usage_`使用的都是`std::memory_order_relaxed`呢？
+
+因为`memory_usage_`的上下文里没有需要读取`memory_usage_`的地方，不需要对指令重排做约束。
+
+至此，`Arena`的实现就分析完了。
+
+## Arena的内存释放
+
+当`Arena`对象销毁时，会集中销毁`blocks_`里的block，释放内存。
+
+```c++
+Arena::~Arena() {
+    for (size_t i = 0; i < blocks_.size(); i++) {
+        delete[] blocks_[i];
+    }
+}
+```
+
+## AllocateAligned && Allocate 的适用场景
+
+`LevelDB`中，用到`Arena`的只有两个地方:
+
+- `MemTable::Add`里使用`Arena::Allocate`分配代插入记录的内存
+- `SkipList::NewNode`里使用`Arena::AllocateAligned`分配`SkipList::Node`的内存
+
+```c++
+void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
+                   const Slice& value) {
+
+    // ...
+
+    // 通过Allocate分配record(key+value)的内存
+    char* buf = arena_.Allocate(encoded_len);
+
+    // ...
+}
+```
+
+```c++
+template <typename Key, class Comparator>
+typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(
+    const Key& key, int height) {
+    // 通过AllocateAlgined分配node的内存
+    char* const node_memory = arena_->AllocateAligned(
+        sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
+    // 这里是 placement new 的写法，在现有的内存上进行 new object
+    return new (node_memory) Node(key);
+}
+```
+
+为什么前者使用`Allocate`，后者使用`AllocateAligned`呢？
+
+`MemTable::Add`用于往`MemTable`中插入记录，这条记录的内存即使没对齐也没关系，因为不会对这块不会像遍历数组那样挨个访问，只是开辟一块内存把东西写进去，然后基本就不会访问这块内存了。若强行使用`AllocateAligned`只会徒增内存碎片。
+
+而`SkipList::Node`就不一样了，`SkipList::Node`里有个`next_[]`数组，`next_[]`会被频繁读取。如果`next_[]`里某个元素不是对齐的，每次取这个元素的时候CPU都需要取两次内存，并且会增加`Cache False-Sharing`的概率，关于`Cache False-Sharing`详见[这里](https://blog.csdn.net/weixin_30270561/article/details/99394006)。所以`SkipList::Node`的内存需要使用`AllocateAligned`分配。
+
+
+
