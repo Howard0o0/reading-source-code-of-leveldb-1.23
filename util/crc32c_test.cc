@@ -40,9 +40,7 @@ TEST(CRC, StandardResults) {
 
 TEST(CRC, Values) { ASSERT_NE(Value("a", 1), Value("foo", 3)); }
 
-TEST(CRC, Extend) {
-    ASSERT_EQ(Value("hello world", 11), Extend(Value("hello ", 6), "world", 5));
-}
+TEST(CRC, Extend) { ASSERT_EQ(Value("hello world", 11), Extend(Value("hello ", 6), "world", 5)); }
 
 TEST(CRC, Mask) {
     uint32_t crc = Value("foo", 3);

@@ -53,13 +53,11 @@ TEST_F(EnvTest, ReadWrite) {
 
     // Read all data using a sequence of randomly sized reads.
     SequentialFile* sequential_file;
-    ASSERT_LEVELDB_OK(
-        env_->NewSequentialFile(test_file_name, &sequential_file));
+    ASSERT_LEVELDB_OK(env_->NewSequentialFile(test_file_name, &sequential_file));
     std::string read_result;
     std::string scratch;
     while (read_result.size() < data.size()) {
-        int len =
-            std::min<int>(rnd.Skewed(18), data.size() - read_result.size());
+        int len = std::min<int>(rnd.Skewed(18), data.size() - read_result.size());
         scratch.resize(std::max(len, 1));  // at least 1 so &scratch[0] is legal
         Slice read;
         ASSERT_LEVELDB_OK(sequential_file->Read(len, &read, &scratch[0]));
@@ -178,8 +176,7 @@ TEST_F(EnvTest, TestOpenNonExistentFile) {
     ASSERT_TRUE(!env_->FileExists(non_existent_file));
 
     RandomAccessFile* random_access_file;
-    Status status =
-        env_->NewRandomAccessFile(non_existent_file, &random_access_file);
+    Status status = env_->NewRandomAccessFile(non_existent_file, &random_access_file);
     ASSERT_TRUE(status.IsNotFound());
 
     SequentialFile* sequential_file;
@@ -218,15 +215,13 @@ TEST_F(EnvTest, ReopenAppendableFile) {
     env_->RemoveFile(test_file_name);
 
     WritableFile* appendable_file;
-    ASSERT_LEVELDB_OK(
-        env_->NewAppendableFile(test_file_name, &appendable_file));
+    ASSERT_LEVELDB_OK(env_->NewAppendableFile(test_file_name, &appendable_file));
     std::string data("hello world!");
     ASSERT_LEVELDB_OK(appendable_file->Append(data));
     ASSERT_LEVELDB_OK(appendable_file->Close());
     delete appendable_file;
 
-    ASSERT_LEVELDB_OK(
-        env_->NewAppendableFile(test_file_name, &appendable_file));
+    ASSERT_LEVELDB_OK(env_->NewAppendableFile(test_file_name, &appendable_file));
     data = "42";
     ASSERT_LEVELDB_OK(appendable_file->Append(data));
     ASSERT_LEVELDB_OK(appendable_file->Close());

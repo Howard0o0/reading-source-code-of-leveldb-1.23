@@ -91,8 +91,7 @@ int VarintLength(uint64_t v) {
     return len;
 }
 
-const char* GetVarint32PtrFallback(const char* p, const char* limit,
-                                   uint32_t* value) {
+const char* GetVarint32PtrFallback(const char* p, const char* limit, uint32_t* value) {
     uint32_t result = 0;
     for (uint32_t shift = 0; shift <= 28 && p < limit; shift += 7) {
         uint32_t byte = *(reinterpret_cast<const uint8_t*>(p));
@@ -150,8 +149,7 @@ bool GetVarint64(Slice* input, uint64_t* value) {
     }
 }
 
-const char* GetLengthPrefixedSlice(const char* p, const char* limit,
-                                   Slice* result) {
+const char* GetLengthPrefixedSlice(const char* p, const char* limit, Slice* result) {
     uint32_t len;
     p = GetVarint32Ptr(p, limit, &len);
     if (p == nullptr) return nullptr;

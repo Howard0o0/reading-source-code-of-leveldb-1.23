@@ -16,8 +16,7 @@ namespace leveldb {
 static const size_t kFilterBaseLg = 11;
 static const size_t kFilterBase = 1 << kFilterBaseLg;
 
-FilterBlockBuilder::FilterBlockBuilder(const FilterPolicy* policy)
-    : policy_(policy) {}
+FilterBlockBuilder::FilterBlockBuilder(const FilterPolicy* policy) : policy_(policy) {}
 
 void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
     /* block_offset 可以认为是 Data Block 的结束偏移量，kFilterBase 的值其实就是
@@ -83,10 +82,9 @@ void FilterBlockBuilder::GenerateFilter() {
 
     /* 逐一取出 keys_ 中的所有 InternalKey，并扔到 tmp_keys_ 中 */
     for (size_t i = 0; i < num_keys; i++) {
-        const char* base =
-            keys_.data() + start_[i]; /* 取得第 i 个 key 的起始地址 */
-        size_t length = start_[i + 1] - start_[i]; /* 取得第 i 个 key 的长度 */
-        tmp_keys_[i] = Slice(base, length);        /* 通过 Slice 构造 key */
+        const char* base = keys_.data() + start_[i]; /* 取得第 i 个 key 的起始地址 */
+        size_t length = start_[i + 1] - start_[i];   /* 取得第 i 个 key 的长度 */
+        tmp_keys_[i] = Slice(base, length);          /* 通过 Slice 构造 key */
     }
 
     /* result_.size() 的初始值为 0，所以 filter_offsets_ 记录的是 Bloom Filter
@@ -100,8 +98,7 @@ void FilterBlockBuilder::GenerateFilter() {
     start_.clear();
 }
 
-FilterBlockReader::FilterBlockReader(const FilterPolicy* policy,
-                                     const Slice& contents)
+FilterBlockReader::FilterBlockReader(const FilterPolicy* policy, const Slice& contents)
     : policy_(policy), data_(nullptr), offset_(nullptr), num_(0), base_lg_(0) {
     size_t n = contents.size();
     if (n < 5) return;  // 1 byte for base_lg_ and 4 for start of offset array

@@ -36,9 +36,8 @@ static std::string RandomString(Random* rnd, int len) {
 }
 
 static std::string RandomKey(Random* rnd) {
-    int len = (rnd->OneIn(3)
-                   ? 1  // Short sometimes to encourage collisions
-                   : (rnd->OneIn(100) ? rnd->Skewed(10) : rnd->Uniform(10)));
+    int len = (rnd->OneIn(3) ? 1  // Short sometimes to encourage collisions
+                             : (rnd->OneIn(100) ? rnd->Skewed(10) : rnd->Uniform(10)));
     return test::RandomKey(rnd, len);
 }
 
@@ -65,9 +64,7 @@ class AtomicCounter {
     int count_ GUARDED_BY(mu_);
 };
 
-void DelayMilliseconds(int millis) {
-    Env::Default()->SleepForMicroseconds(millis * 1000);
-}
+void DelayMilliseconds(int millis) { Env::Default()->SleepForMicroseconds(millis * 1000); }
 }  // namespace
 
 // Test Env to override default Env behavior for testing.
@@ -77,8 +74,7 @@ class TestEnv : public EnvWrapper {
 
     void SetIgnoreDotFiles(bool ignored) { ignore_dot_files_ = ignored; }
 
-    Status GetChildren(const std::string& dir,
-                       std::vector<std::string>* result) override {
+    Status GetChildren(const std::string& dir, std::vector<std::string>* result) override {
         Status s = target()->GetChildren(dir, result);
         if (!s.ok() || !ignore_dot_files_) {
             return s;
@@ -141,8 +137,7 @@ class SpecialEnv : public EnvWrapper {
             WritableFile* const base_;
 
            public:
-            DataFile(SpecialEnv* env, WritableFile* base)
-                : env_(env), base_(base) {}
+            DataFile(SpecialEnv* env, WritableFile* base) : env_(env), base_(base) {}
             ~DataFile() { delete base_; }
             Status Append(const Slice& data) {
                 if (env_->no_space_.load(std::memory_order_acquire)) {
@@ -170,12 +165,10 @@ class SpecialEnv : public EnvWrapper {
             WritableFile* base_;
 
            public:
-            ManifestFile(SpecialEnv* env, WritableFile* b)
-                : env_(env), base_(b) {}
+            ManifestFile(SpecialEnv* env, WritableFile* b) : env_(env), base_(b) {}
             ~ManifestFile() { delete base_; }
             Status Append(const Slice& data) {
-                if (env_->manifest_write_error_.load(
-                        std::memory_order_acquire)) {
+                if (env_->manifest_write_error_.load(std::memory_order_acquire)) {
                     return Status::IOError("simulated writer error");
                 } else {
                     return base_->Append(data);
@@ -184,8 +177,7 @@ class SpecialEnv : public EnvWrapper {
             Status Close() { return base_->Close(); }
             Status Flush() { return base_->Flush(); }
             Status Sync() {
-                if (env_->manifest_sync_error_.load(
-                        std::memory_order_acquire)) {
+                if (env_->manifest_sync_error_.load(std::memory_order_acquire)) {
                     return Status::IOError("simulated sync error");
                 } else {
                     return base_->Sync();
@@ -199,8 +191,7 @@ class SpecialEnv : public EnvWrapper {
 
         Status s = target()->NewWritableFile(f, r);
         if (s.ok()) {
-            if (strstr(f.c_str(), ".ldb") != nullptr ||
-                strstr(f.c_str(), ".log") != nullptr) {
+            if (strstr(f.c_str(), ".ldb") != nullptr || strstr(f.c_str(), ".log") != nullptr) {
                 *r = new DataFile(this, *r);
             } else if (strstr(f.c_str(), "MANIFEST") != nullptr) {
                 *r = new ManifestFile(this, *r);
@@ -219,8 +210,7 @@ class SpecialEnv : public EnvWrapper {
             CountingFile(RandomAccessFile* target, AtomicCounter* counter)
                 : target_(target), counter_(counter) {}
             ~CountingFile() override { delete target_; }
-            Status Read(uint64_t offset, size_t n, Slice* result,
-                        char* scratch) const override {
+            Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
                 counter_->Increment();
                 return target_->Read(offset, n, result, scratch);
             }
@@ -291,9 +281,7 @@ class DBTest : public testing::Test {
 
     DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_); }
 
-    void Reopen(Options* options = nullptr) {
-        ASSERT_LEVELDB_OK(TryReopen(options));
-    }
+    void Reopen(Options* options = nullptr) { ASSERT_LEVELDB_OK(TryReopen(options)); }
 
     void Close() {
         delete db_;
@@ -326,9 +314,7 @@ class DBTest : public testing::Test {
         return db_->Put(WriteOptions(), k, v);
     }
 
-    Status Delete(const std::string& k) {
-        return db_->Delete(WriteOptions(), k);
-    }
+    Status Delete(const std::string& k) { return db_->Delete(WriteOptions(), k); }
 
     std::string Get(const std::string& k, const Snapshot* snapshot = nullptr) {
         ReadOptions options;
@@ -385,8 +371,7 @@ class DBTest : public testing::Test {
                 if (!ParseInternalKey(iter->key(), &ikey)) {
                     result += "CORRUPTED";
                 } else {
-                    if (last_options_.comparator->Compare(ikey.user_key,
-                                                          user_key) != 0) {
+                    if (last_options_.comparator->Compare(ikey.user_key, user_key) != 0) {
                         break;
                     }
                     if (!first) {
@@ -415,8 +400,8 @@ class DBTest : public testing::Test {
 
     int NumTableFilesAtLevel(int level) {
         std::string property;
-        EXPECT_TRUE(db_->GetProperty(
-            "leveldb.num-files-at-level" + NumberToString(level), &property));
+        EXPECT_TRUE(
+            db_->GetProperty("leveldb.num-files-at-level" + NumberToString(level), &property));
         return std::stoi(property);
     }
 
@@ -458,14 +443,11 @@ class DBTest : public testing::Test {
         return size;
     }
 
-    void Compact(const Slice& start, const Slice& limit) {
-        db_->CompactRange(&start, &limit);
-    }
+    void Compact(const Slice& start, const Slice& limit) { db_->CompactRange(&start, &limit); }
 
     // Do n memtable compactions, each of which produces an sstable
     // covering the range [small_key,large_key].
-    void MakeTables(int n, const std::string& small_key,
-                    const std::string& large_key) {
+    void MakeTables(int n, const std::string& small_key, const std::string& large_key) {
         for (int i = 0; i < n; i++) {
             Put(small_key, "begin");
             Put(large_key, "end");
@@ -482,8 +464,7 @@ class DBTest : public testing::Test {
     void DumpFileCounts(const char* label) {
         std::fprintf(stderr, "---\n%s:\n", label);
         std::fprintf(stderr, "maxoverlap: %lld\n",
-                     static_cast<long long>(
-                         dbfull()->TEST_MaxNextLevelOverlappingBytes()));
+                     static_cast<long long>(dbfull()->TEST_MaxNextLevelOverlappingBytes()));
         for (int level = 0; level < config::kNumLevels; level++) {
             int num = NumTableFilesAtLevel(level);
             if (num > 0) {
@@ -514,10 +495,8 @@ class DBTest : public testing::Test {
         uint64_t number;
         FileType type;
         for (size_t i = 0; i < filenames.size(); i++) {
-            if (ParseFileName(filenames[i], &number, &type) &&
-                type == kTableFile) {
-                EXPECT_LEVELDB_OK(
-                    env_->RemoveFile(TableFileName(dbname_, number)));
+            if (ParseFileName(filenames[i], &number, &type) && type == kTableFile) {
+                EXPECT_LEVELDB_OK(env_->RemoveFile(TableFileName(dbname_, number)));
                 return true;
             }
         }
@@ -532,8 +511,7 @@ class DBTest : public testing::Test {
         FileType type;
         int files_renamed = 0;
         for (size_t i = 0; i < filenames.size(); i++) {
-            if (ParseFileName(filenames[i], &number, &type) &&
-                type == kTableFile) {
+            if (ParseFileName(filenames[i], &number, &type) && type == kTableFile) {
                 const std::string from = TableFileName(dbname_, number);
                 const std::string to = SSTTableFileName(dbname_, number);
                 EXPECT_LEVELDB_OK(env_->RenameFile(from, to));
@@ -643,8 +621,7 @@ TEST_F(DBTest, GetSnapshot) {
     do {
         // Try with both a short key and a long key
         for (int i = 0; i < 2; i++) {
-            std::string key =
-                (i == 0) ? std::string("foo") : std::string(200, 'x');
+            std::string key = (i == 0) ? std::string("foo") : std::string(200, 'x');
             ASSERT_LEVELDB_OK(Put(key, "v1"));
             const Snapshot* s1 = db_->GetSnapshot();
             ASSERT_LEVELDB_OK(Put(key, "v2"));
@@ -662,8 +639,7 @@ TEST_F(DBTest, GetIdenticalSnapshots) {
     do {
         // Try with both a short key and a long key
         for (int i = 0; i < 2; i++) {
-            std::string key =
-                (i == 0) ? std::string("foo") : std::string(200, 'x');
+            std::string key = (i == 0) ? std::string("foo") : std::string(200, 'x');
             ASSERT_LEVELDB_OK(Put(key, "v1"));
             const Snapshot* s1 = db_->GetSnapshot();
             const Snapshot* s2 = db_->GetSnapshot();
@@ -1043,12 +1019,10 @@ TEST_F(DBTest, RecoverDuringMemtableCompaction) {
         Reopen(&options);
 
         // Trigger a long memtable compaction and reopen the database during it
-        ASSERT_LEVELDB_OK(Put("foo", "v1"));  // Goes to 1st log file
-        ASSERT_LEVELDB_OK(
-            Put("big1", std::string(10000000, 'x')));  // Fills memtable
-        ASSERT_LEVELDB_OK(
-            Put("big2", std::string(1000, 'y')));  // Triggers compaction
-        ASSERT_LEVELDB_OK(Put("bar", "v2"));       // Goes to new log file
+        ASSERT_LEVELDB_OK(Put("foo", "v1"));                         // Goes to 1st log file
+        ASSERT_LEVELDB_OK(Put("big1", std::string(10000000, 'x')));  // Fills memtable
+        ASSERT_LEVELDB_OK(Put("big2", std::string(1000, 'y')));      // Triggers compaction
+        ASSERT_LEVELDB_OK(Put("bar", "v2"));                         // Goes to new log file
 
         Reopen(&options);
         ASSERT_EQ("v1", Get("foo"));
@@ -1201,9 +1175,8 @@ TEST_F(DBTest, SparseMerge) {
 static bool Between(uint64_t val, uint64_t low, uint64_t high) {
     bool result = (val >= low) && (val <= high);
     if (!result) {
-        std::fprintf(stderr, "Value %llu is not in range [%llu, %llu]\n",
-                     (unsigned long long)(val), (unsigned long long)(low),
-                     (unsigned long long)(high));
+        std::fprintf(stderr, "Value %llu is not in range [%llu, %llu]\n", (unsigned long long)(val),
+                     (unsigned long long)(low), (unsigned long long)(high));
     }
     return result;
 }
@@ -1244,18 +1217,14 @@ TEST_F(DBTest, ApproximateSizes) {
         for (int run = 0; run < 3; run++) {
             Reopen(&options);
 
-            for (int compact_start = 0; compact_start < N;
-                 compact_start += 10) {
+            for (int compact_start = 0; compact_start < N; compact_start += 10) {
                 for (int i = 0; i < N; i += 10) {
                     ASSERT_TRUE(Between(Size("", Key(i)), S1 * i, S2 * i));
-                    ASSERT_TRUE(Between(Size("", Key(i) + ".suffix"),
-                                        S1 * (i + 1), S2 * (i + 1)));
-                    ASSERT_TRUE(
-                        Between(Size(Key(i), Key(i + 10)), S1 * 10, S2 * 10));
+                    ASSERT_TRUE(Between(Size("", Key(i) + ".suffix"), S1 * (i + 1), S2 * (i + 1)));
+                    ASSERT_TRUE(Between(Size(Key(i), Key(i + 10)), S1 * 10, S2 * 10));
                 }
                 ASSERT_TRUE(Between(Size("", Key(50)), S1 * 50, S2 * 50));
-                ASSERT_TRUE(
-                    Between(Size("", Key(50) + ".suffix"), S1 * 50, S2 * 50));
+                ASSERT_TRUE(Between(Size("", Key(50) + ".suffix"), S1 * 50, S2 * 50));
 
                 std::string cstart_str = Key(compact_start);
                 std::string cend_str = Key(compact_start + 9);
@@ -1323,8 +1292,7 @@ TEST_F(DBTest, IteratorPinsRef) {
     // Write to force compactions
     Put("foo", "newvalue1");
     for (int i = 0; i < 100; i++) {
-        ASSERT_LEVELDB_OK(
-            Put(Key(i), Key(i) + std::string(100000, 'v')));  // 100K values
+        ASSERT_LEVELDB_OK(Put(Key(i), Key(i) + std::string(100000, 'v')));  // 100K values
     }
     Put("foo", "newvalue2");
 
@@ -1413,8 +1381,7 @@ TEST_F(DBTest, DeletionMarkers1) {
     Delete("foo");
     Put("foo", "v2");
     ASSERT_EQ(AllEntriesFor("foo"), "[ v2, DEL, v1 ]");
-    ASSERT_LEVELDB_OK(
-        dbfull()->TEST_CompactMemTable());  // Moves to level last-2
+    ASSERT_LEVELDB_OK(dbfull()->TEST_CompactMemTable());  // Moves to level last-2
     ASSERT_EQ(AllEntriesFor("foo"), "[ v2, DEL, v1 ]");
     Slice z("z");
     dbfull()->TEST_CompactRange(last - 2, nullptr, &z);
@@ -1442,8 +1409,7 @@ TEST_F(DBTest, DeletionMarkers2) {
 
     Delete("foo");
     ASSERT_EQ(AllEntriesFor("foo"), "[ DEL, v1 ]");
-    ASSERT_LEVELDB_OK(
-        dbfull()->TEST_CompactMemTable());  // Moves to level last-2
+    ASSERT_LEVELDB_OK(dbfull()->TEST_CompactMemTable());  // Moves to level last-2
     ASSERT_EQ(AllEntriesFor("foo"), "[ DEL, v1 ]");
     dbfull()->TEST_CompactRange(last - 2, nullptr, nullptr);
     // DEL kept: "last" file overlaps
@@ -1555,8 +1521,7 @@ TEST_F(DBTest, ComparatorCheck) {
         int Compare(const Slice& a, const Slice& b) const override {
             return BytewiseComparator()->Compare(a, b);
         }
-        void FindShortestSeparator(std::string* s,
-                                   const Slice& l) const override {
+        void FindShortestSeparator(std::string* s, const Slice& l) const override {
             BytewiseComparator()->FindShortestSeparator(s, l);
         }
         void FindShortSuccessor(std::string* key) const override {
@@ -1568,8 +1533,7 @@ TEST_F(DBTest, ComparatorCheck) {
     new_options.comparator = &cmp;
     Status s = TryReopen(&new_options);
     ASSERT_TRUE(!s.ok());
-    ASSERT_TRUE(s.ToString().find("comparator") != std::string::npos)
-        << s.ToString();
+    ASSERT_TRUE(s.ToString().find("comparator") != std::string::npos) << s.ToString();
 }
 
 TEST_F(DBTest, CustomComparator) {
@@ -1579,8 +1543,7 @@ TEST_F(DBTest, CustomComparator) {
         int Compare(const Slice& a, const Slice& b) const override {
             return ToNumber(a) - ToNumber(b);
         }
-        void FindShortestSeparator(std::string* s,
-                                   const Slice& l) const override {
+        void FindShortestSeparator(std::string* s, const Slice& l) const override {
             ToNumber(*s);  // Check format
             ToNumber(l);   // Check format
         }
@@ -1591,12 +1554,10 @@ TEST_F(DBTest, CustomComparator) {
        private:
         static int ToNumber(const Slice& x) {
             // Check that there are no extra characters.
-            EXPECT_TRUE(x.size() >= 2 && x[0] == '[' && x[x.size() - 1] == ']')
-                << EscapeString(x);
+            EXPECT_TRUE(x.size() >= 2 && x[0] == '[' && x[x.size() - 1] == ']') << EscapeString(x);
             int val;
             char ignored;
-            EXPECT_TRUE(
-                sscanf(x.ToString().c_str(), "[%i]%c", &val, &ignored) == 1)
+            EXPECT_TRUE(sscanf(x.ToString().c_str(), "[%i]%c", &val, &ignored) == 1)
                 << EscapeString(x);
             return val;
         }
@@ -1844,9 +1805,8 @@ TEST_F(DBTest, ManifestWriteError) {
     // We iterate twice.  In the second iteration, everything is the
     // same except the log record never makes it to the MANIFEST file.
     for (int iter = 0; iter < 2; iter++) {
-        std::atomic<bool>* error_type = (iter == 0)
-                                            ? &env_->manifest_sync_error_
-                                            : &env_->manifest_write_error_;
+        std::atomic<bool>* error_type =
+            (iter == 0) ? &env_->manifest_sync_error_ : &env_->manifest_write_error_;
 
         // Insert foo=>bar mapping
         Options options = CurrentOptions();
@@ -1890,8 +1850,7 @@ TEST_F(DBTest, MissingSSTFile) {
     options.paranoid_checks = true;
     Status s = TryReopen(&options);
     ASSERT_TRUE(!s.ok());
-    ASSERT_TRUE(s.ToString().find("issing") != std::string::npos)
-        << s.ToString();
+    ASSERT_TRUE(s.ToString().find("issing") != std::string::npos) << s.ToString();
 }
 
 TEST_F(DBTest, StillReadSST) {
@@ -2008,8 +1967,7 @@ static void MTThreadBody(void* arg) {
             // We add some padding for force compactions.
             std::snprintf(valbuf, sizeof(valbuf), "%d.%d.%-1000d", key, id,
                           static_cast<int>(counter));
-            ASSERT_LEVELDB_OK(
-                db->Put(WriteOptions(), Slice(keybuf), Slice(valbuf)));
+            ASSERT_LEVELDB_OK(db->Put(WriteOptions(), Slice(keybuf), Slice(valbuf)));
         } else {
             // Read a value and verify that it matches the pattern written
             // above.
@@ -2021,13 +1979,11 @@ static void MTThreadBody(void* arg) {
                 // value
                 ASSERT_LEVELDB_OK(s);
                 int k, w, c;
-                ASSERT_EQ(3, sscanf(value.c_str(), "%d.%d.%d", &k, &w, &c))
-                    << value;
+                ASSERT_EQ(3, sscanf(value.c_str(), "%d.%d.%d", &k, &w, &c)) << value;
                 ASSERT_EQ(k, key);
                 ASSERT_GE(w, 0);
                 ASSERT_LT(w, kNumThreads);
-                ASSERT_LE(c,
-                          t->state->counter[w].load(std::memory_order_acquire));
+                ASSERT_LE(c, t->state->counter[w].load(std::memory_order_acquire));
             }
         }
         counter++;
@@ -2086,11 +2042,8 @@ class ModelDB : public DB {
     Status Put(const WriteOptions& o, const Slice& k, const Slice& v) override {
         return DB::Put(o, k, v);
     }
-    Status Delete(const WriteOptions& o, const Slice& key) override {
-        return DB::Delete(o, key);
-    }
-    Status Get(const ReadOptions& options, const Slice& key,
-               std::string* value) override {
+    Status Delete(const WriteOptions& o, const Slice& key) override { return DB::Delete(o, key); }
+    Status Get(const ReadOptions& options, const Slice& key, std::string* value) override {
         assert(false);  // Not implemented
         return Status::NotFound(key);
     }
@@ -2100,8 +2053,8 @@ class ModelDB : public DB {
             *saved = map_;
             return new ModelIter(saved, true);
         } else {
-            const KVMap* snapshot_state = &(
-                reinterpret_cast<const ModelSnapshot*>(options.snapshot)->map_);
+            const KVMap* snapshot_state =
+                &(reinterpret_cast<const ModelSnapshot*>(options.snapshot)->map_);
             return new ModelIter(snapshot_state, false);
         }
     }
@@ -2121,18 +2074,14 @@ class ModelDB : public DB {
             void Put(const Slice& key, const Slice& value) override {
                 (*map_)[key.ToString()] = value.ToString();
             }
-            void Delete(const Slice& key) override {
-                map_->erase(key.ToString());
-            }
+            void Delete(const Slice& key) override { map_->erase(key.ToString()); }
         };
         Handler handler;
         handler.map_ = &map_;
         return batch->Iterate(&handler);
     }
 
-    bool GetProperty(const Slice& property, std::string* value) override {
-        return false;
-    }
+    bool GetProperty(const Slice& property, std::string* value) override { return false; }
     void GetApproximateSizes(const Range* r, int n, uint64_t* sizes) override {
         for (int i = 0; i < n; i++) {
             sizes[i] = 0;
@@ -2143,8 +2092,7 @@ class ModelDB : public DB {
    private:
     class ModelIter : public Iterator {
        public:
-        ModelIter(const KVMap* map, bool owned)
-            : map_(map), owned_(owned), iter_(map_->end()) {}
+        ModelIter(const KVMap* map, bool owned) : map_(map), owned_(owned), iter_(map_->end()) {}
         ~ModelIter() override {
             if (owned_) delete map_;
         }
@@ -2157,9 +2105,7 @@ class ModelDB : public DB {
                 iter_ = map_->find(map_->rbegin()->first);
             }
         }
-        void Seek(const Slice& k) override {
-            iter_ = map_->lower_bound(k.ToString());
-        }
+        void Seek(const Slice& k) override { iter_ = map_->lower_bound(k.ToString()); }
         void Next() override { ++iter_; }
         void Prev() override { --iter_; }
         Slice key() const override { return iter_->first; }
@@ -2175,8 +2121,7 @@ class ModelDB : public DB {
     KVMap map_;
 };
 
-static bool CompareIterators(int step, DB* model, DB* db,
-                             const Snapshot* model_snap,
+static bool CompareIterators(int step, DB* model, DB* db, const Snapshot* model_snap,
                              const Snapshot* db_snap) {
     ReadOptions options;
     options.snapshot = model_snap;
@@ -2188,24 +2133,20 @@ static bool CompareIterators(int step, DB* model, DB* db,
     std::vector<std::string> seek_keys;
     // Compare equality of all elements using Next(). Save some of the keys for
     // comparing Seek equality.
-    for (miter->SeekToFirst(), dbiter->SeekToFirst();
-         ok && miter->Valid() && dbiter->Valid();
+    for (miter->SeekToFirst(), dbiter->SeekToFirst(); ok && miter->Valid() && dbiter->Valid();
          miter->Next(), dbiter->Next()) {
         count++;
         if (miter->key().compare(dbiter->key()) != 0) {
             std::fprintf(stderr, "step %d: Key mismatch: '%s' vs. '%s'\n", step,
-                         EscapeString(miter->key()).c_str(),
-                         EscapeString(dbiter->key()).c_str());
+                         EscapeString(miter->key()).c_str(), EscapeString(dbiter->key()).c_str());
             ok = false;
             break;
         }
 
         if (miter->value().compare(dbiter->value()) != 0) {
-            std::fprintf(
-                stderr, "step %d: Value mismatch for key '%s': '%s' vs. '%s'\n",
-                step, EscapeString(miter->key()).c_str(),
-                EscapeString(miter->value()).c_str(),
-                EscapeString(miter->value()).c_str());
+            std::fprintf(stderr, "step %d: Value mismatch for key '%s': '%s' vs. '%s'\n", step,
+                         EscapeString(miter->key()).c_str(), EscapeString(miter->value()).c_str(),
+                         EscapeString(miter->value()).c_str());
             ok = false;
             break;
         }
@@ -2217,29 +2158,25 @@ static bool CompareIterators(int step, DB* model, DB* db,
 
     if (ok) {
         if (miter->Valid() != dbiter->Valid()) {
-            std::fprintf(stderr,
-                         "step %d: Mismatch at end of iterators: %d vs. %d\n",
-                         step, miter->Valid(), dbiter->Valid());
+            std::fprintf(stderr, "step %d: Mismatch at end of iterators: %d vs. %d\n", step,
+                         miter->Valid(), dbiter->Valid());
             ok = false;
         }
     }
 
     if (ok) {
         // Validate iterator equality when performing seeks.
-        for (auto kiter = seek_keys.begin(); ok && kiter != seek_keys.end();
-             ++kiter) {
+        for (auto kiter = seek_keys.begin(); ok && kiter != seek_keys.end(); ++kiter) {
             miter->Seek(*kiter);
             dbiter->Seek(*kiter);
             if (!miter->Valid() || !dbiter->Valid()) {
-                std::fprintf(stderr,
-                             "step %d: Seek iterators invalid: %d vs. %d\n",
-                             step, miter->Valid(), dbiter->Valid());
+                std::fprintf(stderr, "step %d: Seek iterators invalid: %d vs. %d\n", step,
+                             miter->Valid(), dbiter->Valid());
                 ok = false;
             }
             if (miter->key().compare(dbiter->key()) != 0) {
-                std::fprintf(stderr,
-                             "step %d: Seek key mismatch: '%s' vs. '%s'\n",
-                             step, EscapeString(miter->key()).c_str(),
+                std::fprintf(stderr, "step %d: Seek key mismatch: '%s' vs. '%s'\n", step,
+                             EscapeString(miter->key()).c_str(),
                              EscapeString(dbiter->key()).c_str());
                 ok = false;
                 break;
@@ -2280,8 +2217,7 @@ TEST_F(DBTest, Randomized) {
             int p = rnd.Uniform(100);
             if (p < 45) {  // Put
                 k = RandomKey(&rnd);
-                v = RandomString(&rnd, rnd.OneIn(20) ? 100 + rnd.Uniform(100)
-                                                     : rnd.Uniform(8));
+                v = RandomString(&rnd, rnd.OneIn(20) ? 100 + rnd.Uniform(100) : rnd.Uniform(8));
                 ASSERT_LEVELDB_OK(model.Put(WriteOptions(), k, v));
                 ASSERT_LEVELDB_OK(db_->Put(WriteOptions(), k, v));
 
@@ -2313,10 +2249,8 @@ TEST_F(DBTest, Randomized) {
             }
 
             if ((step % 100) == 0) {
-                ASSERT_TRUE(
-                    CompareIterators(step, &model, db_, nullptr, nullptr));
-                ASSERT_TRUE(
-                    CompareIterators(step, &model, db_, model_snap, db_snap));
+                ASSERT_TRUE(CompareIterators(step, &model, db_, nullptr, nullptr));
+                ASSERT_TRUE(CompareIterators(step, &model, db_, model_snap, db_snap));
                 // Save a snapshot from each DB this time that we'll use next
                 // time we compare things, to make sure the current state is
                 // preserved with the snapshot
@@ -2324,8 +2258,7 @@ TEST_F(DBTest, Randomized) {
                 if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
 
                 Reopen();
-                ASSERT_TRUE(
-                    CompareIterators(step, &model, db_, nullptr, nullptr));
+                ASSERT_TRUE(CompareIterators(step, &model, db_, nullptr, nullptr));
 
                 model_snap = model.GetSnapshot();
                 db_snap = db_->GetSnapshot();
@@ -2391,9 +2324,7 @@ static void BM_LogAndApply(benchmark::State& state) {
     unsigned int us = stop_micros - start_micros;
     char buf[16];
     std::snprintf(buf, sizeof(buf), "%d", num_base_files);
-    std::fprintf(stderr,
-                 "BM_LogAndApply/%-6s   %8" PRIu64
-                 " iters : %9u us (%7.0f us / iter)\n",
+    std::fprintf(stderr, "BM_LogAndApply/%-6s   %8" PRIu64 " iters : %9u us (%7.0f us / iter)\n",
                  buf, state.iterations(), us, ((float)us) / state.iterations());
 }
 

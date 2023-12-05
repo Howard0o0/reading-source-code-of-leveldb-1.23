@@ -16,8 +16,9 @@
 // Diagrammatic representation of the format of WriteBatch:
 //   - Sequence: A fixed 64-bit integer that represents the sequence number.
 //   - Count: A fixed 32-bit integer that represents the number of records in the batch.
-//   - Records: This is a sequence of records, where each record represents a write operation. The number of records is specified by Count.
-// 
+//   - Records: This is a sequence of records, where each record represents a write operation. The
+//   number of records is specified by Count.
+//
 // |<---- 8 bytes ---->|<-- 4 bytes -->|<--------- Variable Size -------->|
 // +-------------------+---------------+----------------------------------+
 // |    Sequence       |     Count     |              Records             |
@@ -106,13 +107,9 @@ Status WriteBatch::Iterate(Handler* handler) const {
     }
 }
 
-int WriteBatchInternal::Count(const WriteBatch* b) {
-    return DecodeFixed32(b->rep_.data() + 8);
-}
+int WriteBatchInternal::Count(const WriteBatch* b) { return DecodeFixed32(b->rep_.data() + 8); }
 
-void WriteBatchInternal::SetCount(WriteBatch* b, int n) {
-    EncodeFixed32(&b->rep_[8], n);
-}
+void WriteBatchInternal::SetCount(WriteBatch* b, int n) { EncodeFixed32(&b->rep_[8], n); }
 
 SequenceNumber WriteBatchInternal::Sequence(const WriteBatch* b) {
     return SequenceNumber(DecodeFixed64(b->rep_.data()));
@@ -135,9 +132,7 @@ void WriteBatch::Delete(const Slice& key) {
     PutLengthPrefixedSlice(&rep_, key);
 }
 
-void WriteBatch::Append(const WriteBatch& source) {
-    WriteBatchInternal::Append(this, &source);
-}
+void WriteBatch::Append(const WriteBatch& source) { WriteBatchInternal::Append(this, &source); }
 
 namespace {
 class MemTableInserter : public WriteBatch::Handler {

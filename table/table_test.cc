@@ -30,8 +30,7 @@ namespace leveldb {
 static std::string Reverse(const Slice& key) {
     std::string str(key.ToString());
     std::string rev("");
-    for (std::string::reverse_iterator rit = str.rbegin(); rit != str.rend();
-         ++rit) {
+    for (std::string::reverse_iterator rit = str.rbegin(); rit != str.rend(); ++rit) {
         rev.push_back(*rit);
     }
     return rev;
@@ -40,16 +39,13 @@ static std::string Reverse(const Slice& key) {
 namespace {
 class ReverseKeyComparator : public Comparator {
    public:
-    const char* Name() const override {
-        return "leveldb.ReverseBytewiseComparator";
-    }
+    const char* Name() const override { return "leveldb.ReverseBytewiseComparator"; }
 
     int Compare(const Slice& a, const Slice& b) const override {
         return BytewiseComparator()->Compare(Reverse(a), Reverse(b));
     }
 
-    void FindShortestSeparator(std::string* start,
-                               const Slice& limit) const override {
+    void FindShortestSeparator(std::string* start, const Slice& limit) const override {
         std::string s = Reverse(*start);
         std::string l = Reverse(limit);
         BytewiseComparator()->FindShortestSeparator(&s, l);
@@ -110,15 +106,13 @@ class StringSink : public WritableFile {
 
 class StringSource : public RandomAccessFile {
    public:
-    StringSource(const Slice& contents)
-        : contents_(contents.data(), contents.size()) {}
+    StringSource(const Slice& contents) : contents_(contents.data(), contents.size()) {}
 
     ~StringSource() override = default;
 
     uint64_t Size() const { return contents_.size(); }
 
-    Status Read(uint64_t offset, size_t n, Slice* result,
-                char* scratch) const override {
+    Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
         if (offset >= contents_.size()) {
             return Status::InvalidArgument("invalid Read offset");
         }
@@ -143,15 +137,12 @@ class Constructor {
     explicit Constructor(const Comparator* cmp) : data_(STLLessThan(cmp)) {}
     virtual ~Constructor() = default;
 
-    void Add(const std::string& key, const Slice& value) {
-        data_[key] = value.ToString();
-    }
+    void Add(const std::string& key, const Slice& value) { data_[key] = value.ToString(); }
 
     // Finish constructing the data structure with all the keys that have
     // been added so far.  Returns the keys in sorted order in "*keys"
     // and stores the key/value pairs in "*kvmap"
-    void Finish(const Options& options, std::vector<std::string>* keys,
-                KVMap* kvmap) {
+    void Finish(const Options& options, std::vector<std::string>* keys, KVMap* kvmap) {
         *kvmap = data_;
         keys->clear();
         for (const auto& kvp : data_) {
@@ -197,9 +188,7 @@ class BlockConstructor : public Constructor {
         block_ = new Block(contents);
         return Status::OK();
     }
-    Iterator* NewIterator() const override {
-        return block_->NewIterator(comparator_);
-    }
+    Iterator* NewIterator() const override { return block_->NewIterator(comparator_); }
 
    private:
     const Comparator* const comparator_;
@@ -211,8 +200,7 @@ class BlockConstructor : public Constructor {
 
 class TableConstructor : public Constructor {
    public:
-    TableConstructor(const Comparator* cmp)
-        : Constructor(cmp), source_(nullptr), table_(nullptr) {}
+    TableConstructor(const Comparator* cmp) : Constructor(cmp), source_(nullptr), table_(nullptr) {}
     ~TableConstructor() override { Reset(); }
     Status FinishImpl(const Options& options, const KVMap& data) override {
         Reset();
@@ -232,13 +220,10 @@ class TableConstructor : public Constructor {
         source_ = new StringSource(sink.contents());
         Options table_options;
         table_options.comparator = options.comparator;
-        return Table::Open(table_options, source_, sink.contents().size(),
-                           &table_);
+        return Table::Open(table_options, source_, sink.contents().size(), &table_);
     }
 
-    Iterator* NewIterator() const override {
-        return table_->NewIterator(ReadOptions());
-    }
+    Iterator* NewIterator() const override { return table_->NewIterator(ReadOptions()); }
 
     uint64_t ApproximateOffsetOf(const Slice& key) const {
         return table_->ApproximateOffsetOf(key);
@@ -291,9 +276,7 @@ class KeyConvertingIterator : public Iterator {
     }
 
     Slice value() const override { return iter_->value(); }
-    Status status() const override {
-        return status_.ok() ? iter_->status() : status_;
-    }
+    Status status() const override { return status_.ok() ? iter_->status() : status_; }
 
    private:
     mutable Status status_;
@@ -330,8 +313,7 @@ class MemTableConstructor : public Constructor {
 
 class DBConstructor : public Constructor {
    public:
-    explicit DBConstructor(const Comparator* cmp)
-        : Constructor(cmp), comparator_(cmp) {
+    explicit DBConstructor(const Comparator* cmp) : Constructor(cmp), comparator_(cmp) {
         db_ = nullptr;
         NewDB();
     }
@@ -347,9 +329,7 @@ class DBConstructor : public Constructor {
         }
         return Status::OK();
     }
-    Iterator* NewIterator() const override {
-        return db_->NewIterator(ReadOptions());
-    }
+    Iterator* NewIterator() const override { return db_->NewIterator(ReadOptions()); }
 
     DB* db() const override { return db_; }
 
@@ -440,9 +420,7 @@ class Harness : public testing::Test {
 
     ~Harness() { delete constructor_; }
 
-    void Add(const std::string& key, const std::string& value) {
-        constructor_->Add(key, value);
-    }
+    void Add(const std::string& key, const std::string& value) { constructor_->Add(key, value); }
 
     void Test(Random* rnd) {
         std::vector<std::string> keys;
@@ -454,13 +432,12 @@ class Harness : public testing::Test {
         TestRandomAccess(rnd, keys, data);
     }
 
-    void TestForwardScan(const std::vector<std::string>& keys,
-                         const KVMap& data) {
+    void TestForwardScan(const std::vector<std::string>& keys, const KVMap& data) {
         Iterator* iter = constructor_->NewIterator();
         ASSERT_TRUE(!iter->Valid());
         iter->SeekToFirst();
-        for (KVMap::const_iterator model_iter = data.begin();
-             model_iter != data.end(); ++model_iter) {
+        for (KVMap::const_iterator model_iter = data.begin(); model_iter != data.end();
+             ++model_iter) {
             ASSERT_EQ(ToString(data, model_iter), ToString(iter));
             iter->Next();
         }
@@ -468,13 +445,12 @@ class Harness : public testing::Test {
         delete iter;
     }
 
-    void TestBackwardScan(const std::vector<std::string>& keys,
-                          const KVMap& data) {
+    void TestBackwardScan(const std::vector<std::string>& keys, const KVMap& data) {
         Iterator* iter = constructor_->NewIterator();
         ASSERT_TRUE(!iter->Valid());
         iter->SeekToLast();
-        for (KVMap::const_reverse_iterator model_iter = data.rbegin();
-             model_iter != data.rend(); ++model_iter) {
+        for (KVMap::const_reverse_iterator model_iter = data.rbegin(); model_iter != data.rend();
+             ++model_iter) {
             ASSERT_EQ(ToString(data, model_iter), ToString(iter));
             iter->Prev();
         }
@@ -482,8 +458,7 @@ class Harness : public testing::Test {
         delete iter;
     }
 
-    void TestRandomAccess(Random* rnd, const std::vector<std::string>& keys,
-                          const KVMap& data) {
+    void TestRandomAccess(Random* rnd, const std::vector<std::string>& keys, const KVMap& data) {
         static const bool kVerbose = false;
         Iterator* iter = constructor_->NewIterator();
         ASSERT_TRUE(!iter->Valid());
@@ -513,9 +488,7 @@ class Harness : public testing::Test {
                 case 2: {
                     std::string key = PickRandomKey(rnd, keys);
                     model_iter = data.lower_bound(key);
-                    if (kVerbose)
-                        std::fprintf(stderr, "Seek '%s'\n",
-                                     EscapeString(key).c_str());
+                    if (kVerbose) std::fprintf(stderr, "Seek '%s'\n", EscapeString(key).c_str());
                     iter->Seek(Slice(key));
                     ASSERT_EQ(ToString(data, model_iter), ToString(iter));
                     break;
@@ -526,8 +499,7 @@ class Harness : public testing::Test {
                         if (kVerbose) std::fprintf(stderr, "Prev\n");
                         iter->Prev();
                         if (model_iter == data.begin()) {
-                            model_iter =
-                                data.end();  // Wrap around to invalid value
+                            model_iter = data.end();  // Wrap around to invalid value
                         } else {
                             --model_iter;
                         }
@@ -561,8 +533,7 @@ class Harness : public testing::Test {
         }
     }
 
-    std::string ToString(const KVMap& data,
-                         const KVMap::const_reverse_iterator& it) {
+    std::string ToString(const KVMap& data, const KVMap::const_reverse_iterator& it) {
         if (it == data.rend()) {
             return "END";
         } else {
@@ -574,13 +545,11 @@ class Harness : public testing::Test {
         if (!it->Valid()) {
             return "END";
         } else {
-            return "'" + it->key().ToString() + "->" + it->value().ToString() +
-                   "'";
+            return "'" + it->key().ToString() + "->" + it->value().ToString() + "'";
         }
     }
 
-    std::string PickRandomKey(Random* rnd,
-                              const std::vector<std::string>& keys) {
+    std::string PickRandomKey(Random* rnd, const std::vector<std::string>& keys) {
         if (keys.empty()) {
             return "foo";
         } else {
@@ -688,11 +657,10 @@ TEST_F(Harness, Randomized) {
     for (int i = 0; i < kNumTestArgs; i++) {
         Init(kTestArgList[i]);
         Random rnd(test::RandomSeed() + 5);
-        for (int num_entries = 0; num_entries < 2000;
-             num_entries += (num_entries < 50 ? 1 : 200)) {
+        for (int num_entries = 0; num_entries < 2000; num_entries += (num_entries < 50 ? 1 : 200)) {
             if ((num_entries % 10) == 0) {
-                std::fprintf(stderr, "case %d of %d: num_entries = %d\n",
-                             (i + 1), int(kNumTestArgs), num_entries);
+                std::fprintf(stderr, "case %d of %d: num_entries = %d\n", (i + 1),
+                             int(kNumTestArgs), num_entries);
             }
             for (int e = 0; e < num_entries; e++) {
                 std::string v;
@@ -721,8 +689,7 @@ TEST_F(Harness, RandomizedLongDB) {
     for (int level = 0; level < config::kNumLevels; level++) {
         std::string value;
         char name[100];
-        std::snprintf(name, sizeof(name), "leveldb.num-files-at-level%d",
-                      level);
+        std::snprintf(name, sizeof(name), "leveldb.num-files-at-level%d", level);
         ASSERT_TRUE(db()->GetProperty(name, &value));
         files += atoi(value.c_str());
     }
@@ -744,8 +711,7 @@ TEST(MemTableTest, Simple) {
     Iterator* iter = memtable->NewIterator();
     iter->SeekToFirst();
     while (iter->Valid()) {
-        std::fprintf(stderr, "key: '%s' -> '%s'\n",
-                     iter->key().ToString().c_str(),
+        std::fprintf(stderr, "key: '%s' -> '%s'\n", iter->key().ToString().c_str(),
                      iter->value().ToString().c_str());
         iter->Next();
     }
@@ -757,9 +723,8 @@ TEST(MemTableTest, Simple) {
 static bool Between(uint64_t val, uint64_t low, uint64_t high) {
     bool result = (val >= low) && (val <= high);
     if (!result) {
-        std::fprintf(stderr, "Value %llu is not in range [%llu, %llu]\n",
-                     (unsigned long long)(val), (unsigned long long)(low),
-                     (unsigned long long)(high));
+        std::fprintf(stderr, "Value %llu is not in range [%llu, %llu]\n", (unsigned long long)(val),
+                     (unsigned long long)(low), (unsigned long long)(high));
     }
     return result;
 }

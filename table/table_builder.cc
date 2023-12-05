@@ -29,17 +29,16 @@ struct TableBuilder::Rep {
           index_block(&index_block_options),
           num_entries(0),
           closed(false),
-          filter_block(opt.filter_policy == nullptr
-                           ? nullptr
-                           : new FilterBlockBuilder(opt.filter_policy)),
+          filter_block(opt.filter_policy == nullptr ? nullptr
+                                                    : new FilterBlockBuilder(opt.filter_policy)),
           pending_index_entry(false) {
         index_block_options.block_restart_interval = 1;
     }
 
     Options options;             /* Data Block Options */
     Options index_block_options; /* Index Block Options */
-    WritableFile* file; /* 抽象类，决定了如何进行文件的写入，主要实现为
-                           PosixWritableFile */
+    WritableFile* file;       /* 抽象类，决定了如何进行文件的写入，主要实现为
+                                 PosixWritableFile */
     uint64_t offset;          /* Data Block 在 SSTable 中的文件偏移量 */
     Status status;            /* 操作状态 */
     BlockBuilder data_block;  /* 构建 Data Block 所需的 BlockBuilder */
@@ -47,8 +46,7 @@ struct TableBuilder::Rep {
     std::string last_key;     /* 当前 Data Block 的最后一个写入 key */
     int64_t num_entries;      /* 当前 Data Block 的写入数量 */
     bool closed;              // Either Finish() or Abandon() has been called.
-    FilterBlockBuilder*
-        filter_block; /* 构建 Filter Block 所需的 BlockBuilder */
+    FilterBlockBuilder* filter_block; /* 构建 Filter Block 所需的 BlockBuilder */
 
     // We do not emit the index entry for a block until we have seen the
     // first key for the next data block.  This allows us to use shorter
@@ -83,8 +81,7 @@ Status TableBuilder::ChangeOptions(const Options& options) {
     // this function to catch changes that should not be allowed to
     // change in the middle of building a Table.
     if (options.comparator != rep_->options.comparator) {
-        return Status::InvalidArgument(
-            "changing comparator while building table");
+        return Status::InvalidArgument("changing comparator while building table");
     }
 
     // Note that any live BlockBuilders point to rep_->options and therefore
@@ -211,8 +208,8 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
     block->Reset();
 }
 
-void TableBuilder::WriteRawBlock(const Slice& block_contents,
-                                 CompressionType type, BlockHandle* handle) {
+void TableBuilder::WriteRawBlock(const Slice& block_contents, CompressionType type,
+                                 BlockHandle* handle) {
     Rep* r = rep_;
     handle->set_offset(r->offset);
     handle->set_size(block_contents.size());
@@ -220,10 +217,8 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
     if (r->status.ok()) {
         char trailer[kBlockTrailerSize];
         trailer[0] = type;
-        uint32_t crc =
-            crc32c::Value(block_contents.data(), block_contents.size());
-        crc =
-            crc32c::Extend(crc, trailer, 1);  // Extend crc to cover block type
+        uint32_t crc = crc32c::Value(block_contents.data(), block_contents.size());
+        crc = crc32c::Extend(crc, trailer, 1);  // Extend crc to cover block type
         EncodeFixed32(trailer + 1, crc32c::Mask(crc));
         r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
         if (r->status.ok()) {
@@ -246,8 +241,7 @@ Status TableBuilder::Finish() {
 
     // Write filter block
     if (ok() && r->filter_block != nullptr) {
-        WriteRawBlock(r->filter_block->Finish(), kNoCompression,
-                      &filter_block_handle);
+        WriteRawBlock(r->filter_block->Finish(), kNoCompression, &filter_block_handle);
     }
 
     // Write metaindex block

@@ -41,9 +41,9 @@ class BlockBuilder {
     const Options* options_;         /* Options 对象 */
     std::string buffer_;             /* User Space 缓冲区 */
     std::vector<uint32_t> restarts_; /* Restart Points 数组 */
-    int counter_;          /* Entry 计数器，用于重启点的计算 */
-    bool finished_;        /* 是否已经调用了 Finish() 方法 */
-    std::string last_key_; /* 最后添加的 Key */
+    int counter_;                    /* Entry 计数器，用于重启点的计算 */
+    bool finished_;                  /* 是否已经调用了 Finish() 方法 */
+    std::string last_key_;           /* 最后添加的 Key */
 };
 
 }  // namespace leveldb

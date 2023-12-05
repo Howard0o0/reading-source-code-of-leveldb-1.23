@@ -29,8 +29,7 @@ MemTable::~MemTable() { assert(refs_ == 0); }
 
 size_t MemTable::ApproximateMemoryUsage() { return arena_.MemoryUsage(); }
 
-int MemTable::KeyComparator::operator()(const char* aptr,
-                                        const char* bptr) const {
+int MemTable::KeyComparator::operator()(const char* aptr, const char* bptr) const {
     // Internal keys are encoded as length-prefixed strings.
     Slice a = GetLengthPrefixedSlice(aptr);
     Slice b = GetLengthPrefixedSlice(bptr);
@@ -77,8 +76,7 @@ class MemTableIterator : public Iterator {
 
 Iterator* MemTable::NewIterator() { return new MemTableIterator(&table_); }
 
-void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
-                   const Slice& value) {
+void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key, const Slice& value) {
     // MemTable::Add会将{key, value, sequence, type}编码为一个Entry,
     // 然后插入到SkipList中 MemTable Entry的格式如下:
     // |----------------------|----------------------------------|
@@ -108,9 +106,8 @@ void MemTable::Add(SequenceNumber s, ValueType type, const Slice& key,
     size_t internal_key_size = key_size + 8;
 
     // encoded_len是整个entry的大小
-    const size_t encoded_len = VarintLength(internal_key_size) +
-                               internal_key_size + VarintLength(val_size) +
-                               val_size;
+    const size_t encoded_len =
+        VarintLength(internal_key_size) + internal_key_size + VarintLength(val_size) + val_size;
 
     // 从arena_中分配内存, 开辟entry的空间, 即buf
     char* buf = arena_.Allocate(encoded_len);
@@ -182,8 +179,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
         const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
 
         // 检查一下iter seek到的key和lookupkey是不是同一个user_key.
-        if (comparator_.comparator.user_comparator()->Compare(
-                Slice(key_ptr, key_length - 8), key.user_key()) == 0) {
+        if (comparator_.comparator.user_comparator()->Compare(Slice(key_ptr, key_length - 8),
+                                                              key.user_key()) == 0) {
             // 把type(tag)取出来
             const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
             switch (static_cast<ValueType>(tag & 0xff)) {

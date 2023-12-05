@@ -29,13 +29,11 @@
 #endif
 
 #ifndef ACQUIRED_AFTER
-#define ACQUIRED_AFTER(...) \
-    THREAD_ANNOTATION_ATTRIBUTE__(acquired_after(__VA_ARGS__))
+#define ACQUIRED_AFTER(...) THREAD_ANNOTATION_ATTRIBUTE__(acquired_after(__VA_ARGS__))
 #endif
 
 #ifndef ACQUIRED_BEFORE
-#define ACQUIRED_BEFORE(...) \
-    THREAD_ANNOTATION_ATTRIBUTE__(acquired_before(__VA_ARGS__))
+#define ACQUIRED_BEFORE(...) THREAD_ANNOTATION_ATTRIBUTE__(acquired_before(__VA_ARGS__))
 #endif
 
 #ifndef EXCLUSIVE_LOCKS_REQUIRED
@@ -44,13 +42,11 @@
 #endif
 
 #ifndef SHARED_LOCKS_REQUIRED
-#define SHARED_LOCKS_REQUIRED(...) \
-    THREAD_ANNOTATION_ATTRIBUTE__(shared_locks_required(__VA_ARGS__))
+#define SHARED_LOCKS_REQUIRED(...) THREAD_ANNOTATION_ATTRIBUTE__(shared_locks_required(__VA_ARGS__))
 #endif
 
 #ifndef LOCKS_EXCLUDED
-#define LOCKS_EXCLUDED(...) \
-    THREAD_ANNOTATION_ATTRIBUTE__(locks_excluded(__VA_ARGS__))
+#define LOCKS_EXCLUDED(...) THREAD_ANNOTATION_ATTRIBUTE__(locks_excluded(__VA_ARGS__))
 #endif
 
 #ifndef LOCK_RETURNED
@@ -71,8 +67,7 @@
 #endif
 
 #ifndef SHARED_LOCK_FUNCTION
-#define SHARED_LOCK_FUNCTION(...) \
-    THREAD_ANNOTATION_ATTRIBUTE__(shared_lock_function(__VA_ARGS__))
+#define SHARED_LOCK_FUNCTION(...) THREAD_ANNOTATION_ATTRIBUTE__(shared_lock_function(__VA_ARGS__))
 #endif
 
 #ifndef EXCLUSIVE_TRYLOCK_FUNCTION
@@ -86,23 +81,19 @@
 #endif
 
 #ifndef UNLOCK_FUNCTION
-#define UNLOCK_FUNCTION(...) \
-    THREAD_ANNOTATION_ATTRIBUTE__(unlock_function(__VA_ARGS__))
+#define UNLOCK_FUNCTION(...) THREAD_ANNOTATION_ATTRIBUTE__(unlock_function(__VA_ARGS__))
 #endif
 
 #ifndef NO_THREAD_SAFETY_ANALYSIS
-#define NO_THREAD_SAFETY_ANALYSIS \
-    THREAD_ANNOTATION_ATTRIBUTE__(no_thread_safety_analysis)
+#define NO_THREAD_SAFETY_ANALYSIS THREAD_ANNOTATION_ATTRIBUTE__(no_thread_safety_analysis)
 #endif
 
 #ifndef ASSERT_EXCLUSIVE_LOCK
-#define ASSERT_EXCLUSIVE_LOCK(...) \
-    THREAD_ANNOTATION_ATTRIBUTE__(assert_exclusive_lock(__VA_ARGS__))
+#define ASSERT_EXCLUSIVE_LOCK(...) THREAD_ANNOTATION_ATTRIBUTE__(assert_exclusive_lock(__VA_ARGS__))
 #endif
 
 #ifndef ASSERT_SHARED_LOCK
-#define ASSERT_SHARED_LOCK(...) \
-    THREAD_ANNOTATION_ATTRIBUTE__(assert_shared_lock(__VA_ARGS__))
+#define ASSERT_SHARED_LOCK(...) THREAD_ANNOTATION_ATTRIBUTE__(assert_shared_lock(__VA_ARGS__))
 #endif
 
 #endif  // STORAGE_LEVELDB_PORT_THREAD_ANNOTATIONS_H_

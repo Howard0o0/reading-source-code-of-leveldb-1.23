@@ -158,8 +158,7 @@ class InternalKeyComparator : public Comparator {
     explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
     const char* Name() const override;
     int Compare(const Slice& a, const Slice& b) const override;
-    void FindShortestSeparator(std::string* start,
-                               const Slice& limit) const override;
+    void FindShortestSeparator(std::string* start, const Slice& limit) const override;
     void FindShortSuccessor(std::string* key) const override;
 
     const Comparator* user_comparator() const { return user_comparator_; }
@@ -175,8 +174,7 @@ class InternalFilterPolicy : public FilterPolicy {
    public:
     explicit InternalFilterPolicy(const FilterPolicy* p) : user_policy_(p) {}
     const char* Name() const override;
-    void CreateFilter(const Slice* keys, int n,
-                      std::string* dst) const override;
+    void CreateFilter(const Slice* keys, int n, std::string* dst) const override;
     bool KeyMayMatch(const Slice& key, const Slice& filter) const override;
 };
 
@@ -217,13 +215,11 @@ class InternalKey {
     std::string DebugString() const;
 };
 
-inline int InternalKeyComparator::Compare(const InternalKey& a,
-                                          const InternalKey& b) const {
+inline int InternalKeyComparator::Compare(const InternalKey& a, const InternalKey& b) const {
     return Compare(a.Encode(), b.Encode());
 }
 
-inline bool ParseInternalKey(const Slice& internal_key,
-                             ParsedInternalKey* result) {
+inline bool ParseInternalKey(const Slice& internal_key, ParsedInternalKey* result) {
     const size_t n = internal_key.size();
     if (n < 8) return false;
     uint64_t num = DecodeFixed64(internal_key.data() + n - 8);

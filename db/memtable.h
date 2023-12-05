@@ -62,8 +62,7 @@ class MemTable {
     // Typically value will be empty if type==kTypeDeletion.
     /* 注意 MemTable 并没有实现 update 和 delete 方法，而是使用 Add()
      * 方法去做追加，并且 删除的 Key 会被打上 `kTypeDeletion` 的标记 */
-    void Add(SequenceNumber seq, ValueType type, const Slice& key,
-             const Slice& value);
+    void Add(SequenceNumber seq, ValueType type, const Slice& key, const Slice& value);
 
     // If memtable contains a value for key, store it in *value and return true.
     // If memtable contains a deletion for key, store a NotFound() error
@@ -77,8 +76,7 @@ class MemTable {
 
     struct KeyComparator {
         const InternalKeyComparator comparator;
-        explicit KeyComparator(const InternalKeyComparator& c)
-            : comparator(c) {}
+        explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) {}
         int operator()(const char* a, const char* b) const;
     };
 

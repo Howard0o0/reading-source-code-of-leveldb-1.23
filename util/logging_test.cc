@@ -38,8 +38,7 @@ TEST(Logging, NumberToString) {
     ASSERT_EQ("18446744073709551615", NumberToString(18446744073709551615U));
 }
 
-void ConsumeDecimalNumberRoundtripTest(uint64_t number,
-                                       const std::string& padding = "") {
+void ConsumeDecimalNumberRoundtripTest(uint64_t number, const std::string& padding = "") {
     std::string decimal_number = NumberToString(number);
     std::string input_string = decimal_number + padding;
     Slice input(input_string);

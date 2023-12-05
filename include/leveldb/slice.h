@@ -102,8 +102,7 @@ class LEVELDB_EXPORT Slice {
 };
 
 inline bool operator==(const Slice& x, const Slice& y) {
-    return ((x.size() == y.size()) &&
-            (memcmp(x.data(), y.data(), x.size()) == 0));
+    return ((x.size() == y.size()) && (memcmp(x.data(), y.data(), x.size()) == 0));
 }
 
 inline bool operator!=(const Slice& x, const Slice& y) { return !(x == y); }

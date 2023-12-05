@@ -72,9 +72,7 @@ class HandleTable {
     HandleTable() : length_(0), elems_(0), list_(nullptr) { Resize(); }
     ~HandleTable() { delete[] list_; }
 
-    LRUHandle* Lookup(const Slice& key, uint32_t hash) {
-        return *FindPointer(key, hash);
-    }
+    LRUHandle* Lookup(const Slice& key, uint32_t hash) { return *FindPointer(key, hash); }
 
     LRUHandle* Insert(LRUHandle* h) {
         LRUHandle** ptr = FindPointer(h->key(), h->hash);
@@ -114,8 +112,7 @@ class HandleTable {
     // pointer to the trailing slot in the corresponding linked list.
     LRUHandle** FindPointer(const Slice& key, uint32_t hash) {
         LRUHandle** ptr = &list_[hash & (length_ - 1)];
-        while (*ptr != nullptr &&
-               ((*ptr)->hash != hash || key != (*ptr)->key())) {
+        while (*ptr != nullptr && ((*ptr)->hash != hash || key != (*ptr)->key())) {
             ptr = &(*ptr)->next_hash;
         }
         return ptr;
@@ -158,8 +155,7 @@ class LRUCache {
     void SetCapacity(size_t capacity) { capacity_ = capacity; }
 
     // Like Cache methods, but with an extra "hash" parameter.
-    Cache::Handle* Insert(const Slice& key, uint32_t hash, void* value,
-                          size_t charge,
+    Cache::Handle* Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
                           void (*deleter)(const Slice& key, void* value));
     Cache::Handle* Lookup(const Slice& key, uint32_t hash);
     void Release(Cache::Handle* handle);
@@ -205,8 +201,7 @@ LRUCache::LRUCache() : capacity_(0), usage_(0) {
 }
 
 LRUCache::~LRUCache() {
-    assert(in_use_.next ==
-           &in_use_);  // Error if caller has an unreleased handle
+    assert(in_use_.next == &in_use_);  // Error if caller has an unreleased handle
     for (LRUHandle* e = lru_.next; e != &lru_;) {
         LRUHandle* next = e->next;
         assert(e->in_cache);
@@ -218,8 +213,7 @@ LRUCache::~LRUCache() {
 }
 
 void LRUCache::Ref(LRUHandle* e) {
-    if (e->refs == 1 &&
-        e->in_cache) {  // If on lru_ list, move to in_use_ list.
+    if (e->refs == 1 && e->in_cache) {  // If on lru_ list, move to in_use_ list.
         LRU_Remove(e);
         LRU_Append(&in_use_, e);
     }
@@ -267,14 +261,11 @@ void LRUCache::Release(Cache::Handle* handle) {
     Unref(reinterpret_cast<LRUHandle*>(handle));
 }
 
-Cache::Handle* LRUCache::Insert(const Slice& key, uint32_t hash, void* value,
-                                size_t charge,
-                                void (*deleter)(const Slice& key,
-                                                void* value)) {
+Cache::Handle* LRUCache::Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
+                                void (*deleter)(const Slice& key, void* value)) {
     MutexLock l(&mutex_);
 
-    LRUHandle* e = reinterpret_cast<LRUHandle*>(
-        malloc(sizeof(LRUHandle) - 1 + key.size()));
+    LRUHandle* e = reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
     e->value = value;
     e->deleter = deleter;
     e->charge = charge;
@@ -345,13 +336,9 @@ class ShardedLRUCache : public Cache {
     port::Mutex id_mutex_;
     uint64_t last_id_;
 
-    static inline uint32_t HashSlice(const Slice& s) {
-        return Hash(s.data(), s.size(), 0);
-    }
+    static inline uint32_t HashSlice(const Slice& s) { return Hash(s.data(), s.size(), 0); }
 
-    static uint32_t Shard(uint32_t hash) {
-        return hash >> (32 - kNumShardBits);
-    }
+    static uint32_t Shard(uint32_t hash) { return hash >> (32 - kNumShardBits); }
 
    public:
     explicit ShardedLRUCache(size_t capacity) : last_id_(0) {
@@ -378,9 +365,7 @@ class ShardedLRUCache : public Cache {
         const uint32_t hash = HashSlice(key);
         shard_[Shard(hash)].Erase(key, hash);
     }
-    void* Value(Handle* handle) override {
-        return reinterpret_cast<LRUHandle*>(handle)->value;
-    }
+    void* Value(Handle* handle) override { return reinterpret_cast<LRUHandle*>(handle)->value; }
     uint64_t NewId() override {
         MutexLock l(&id_mutex_);
         return ++(last_id_);

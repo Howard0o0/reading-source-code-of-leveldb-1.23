@@ -87,8 +87,7 @@ class RecoveryTest : public testing::Test {
 
     std::string ManifestFileName() {
         std::string current;
-        EXPECT_LEVELDB_OK(
-            ReadFileToString(env_, CurrentFileName(dbname_), &current));
+        EXPECT_LEVELDB_OK(ReadFileToString(env_, CurrentFileName(dbname_), &current));
         size_t len = current.size();
         if (len > 0 && current[len - 1] == '\n') {
             current.resize(len - 1);
@@ -96,9 +95,7 @@ class RecoveryTest : public testing::Test {
         return dbname_ + "/" + current;
     }
 
-    std::string LogName(uint64_t number) {
-        return LogFileName(dbname_, number);
-    }
+    std::string LogName(uint64_t number) { return LogFileName(dbname_, number); }
 
     size_t RemoveLogFiles() {
         // Linux allows unlinking open files, but Windows does not.
@@ -106,15 +103,12 @@ class RecoveryTest : public testing::Test {
         Close();
         std::vector<uint64_t> logs = GetFiles(kLogFile);
         for (size_t i = 0; i < logs.size(); i++) {
-            EXPECT_LEVELDB_OK(env_->RemoveFile(LogName(logs[i])))
-                << LogName(logs[i]);
+            EXPECT_LEVELDB_OK(env_->RemoveFile(LogName(logs[i]))) << LogName(logs[i]);
         }
         return logs.size();
     }
 
-    void RemoveManifestFile() {
-        ASSERT_LEVELDB_OK(env_->RemoveFile(ManifestFileName()));
-    }
+    void RemoveManifestFile() { ASSERT_LEVELDB_OK(env_->RemoveFile(ManifestFileName())); }
 
     uint64_t FirstLogFile() { return GetFiles(kLogFile)[0]; }
 
@@ -145,8 +139,7 @@ class RecoveryTest : public testing::Test {
     void CompactMemTable() { dbfull()->TEST_CompactMemTable(); }
 
     // Directly construct a log file that sets key to val.
-    void MakeLogFile(uint64_t lognum, SequenceNumber seq, Slice key,
-                     Slice val) {
+    void MakeLogFile(uint64_t lognum, SequenceNumber seq, Slice key, Slice val) {
         std::string fname = LogFileName(dbname_, lognum);
         WritableFile* file;
         ASSERT_LEVELDB_OK(env_->NewWritableFile(fname, &file));
@@ -154,8 +147,7 @@ class RecoveryTest : public testing::Test {
         WriteBatch batch;
         batch.Put(key, val);
         WriteBatchInternal::SetSequence(&batch, seq);
-        ASSERT_LEVELDB_OK(
-            writer.AddRecord(WriteBatchInternal::Contents(&batch)));
+        ASSERT_LEVELDB_OK(writer.AddRecord(WriteBatchInternal::Contents(&batch)));
         ASSERT_LEVELDB_OK(file->Flush());
         delete file;
     }
@@ -168,8 +160,7 @@ class RecoveryTest : public testing::Test {
 
 TEST_F(RecoveryTest, ManifestReused) {
     if (!CanAppend()) {
-        std::fprintf(stderr,
-                     "skipping test because env does not support appending\n");
+        std::fprintf(stderr, "skipping test because env does not support appending\n");
         return;
     }
     ASSERT_LEVELDB_OK(Put("foo", "bar"));
@@ -185,8 +176,7 @@ TEST_F(RecoveryTest, ManifestReused) {
 
 TEST_F(RecoveryTest, LargeManifestCompacted) {
     if (!CanAppend()) {
-        std::fprintf(stderr,
-                     "skipping test because env does not support appending\n");
+        std::fprintf(stderr, "skipping test because env does not support appending\n");
         return;
     }
     ASSERT_LEVELDB_OK(Put("foo", "bar"));
@@ -226,8 +216,7 @@ TEST_F(RecoveryTest, NoLogFiles) {
 
 TEST_F(RecoveryTest, LogFileReuse) {
     if (!CanAppend()) {
-        std::fprintf(stderr,
-                     "skipping test because env does not support appending\n");
+        std::fprintf(stderr, "skipping test because env does not support appending\n");
         return;
     }
     for (int i = 0; i < 2; i++) {

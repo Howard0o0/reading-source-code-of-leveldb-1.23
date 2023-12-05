@@ -47,8 +47,7 @@ class DBIter : public Iterator {
     //     just before all entries whose user key == this->key().
     enum Direction { kForward, kReverse };
 
-    DBIter(DBImpl* db, const Comparator* cmp, Iterator* iter, SequenceNumber s,
-           uint32_t seed)
+    DBIter(DBImpl* db, const Comparator* cmp, Iterator* iter, SequenceNumber s, uint32_t seed)
         : db_(db),
           user_comparator_(cmp),
           iter_(iter),
@@ -65,8 +64,7 @@ class DBIter : public Iterator {
     bool Valid() const override { return valid_; }
     Slice key() const override {
         assert(valid_);
-        return (direction_ == kForward) ? ExtractUserKey(iter_->key())
-                                        : saved_key_;
+        return (direction_ == kForward) ? ExtractUserKey(iter_->key()) : saved_key_;
     }
     Slice value() const override {
         assert(valid_);
@@ -91,9 +89,7 @@ class DBIter : public Iterator {
     void FindPrevUserEntry();
     bool ParseKey(ParsedInternalKey* key);
 
-    inline void SaveKey(const Slice& k, std::string* dst) {
-        dst->assign(k.data(), k.size());
-    }
+    inline void SaveKey(const Slice& k, std::string* dst) { dst->assign(k.data(), k.size()); }
 
     inline void ClearSavedValue() {
         if (saved_value_.capacity() > 1048576) {
@@ -106,9 +102,7 @@ class DBIter : public Iterator {
 
     // Picks the number of bytes that can be read until a compaction is
     // scheduled.
-    size_t RandomCompactionPeriod() {
-        return rnd_.Uniform(2 * config::kReadBytesPeriod);
-    }
+    size_t RandomCompactionPeriod() { return rnd_.Uniform(2 * config::kReadBytesPeriod); }
 
     DBImpl* db_;
     const Comparator* const user_comparator_;
@@ -193,8 +187,7 @@ void DBIter::FindNextUserEntry(bool skipping, std::string* skip) {
                     skipping = true;
                     break;
                 case kTypeValue:
-                    if (skipping &&
-                        user_comparator_->Compare(ikey.user_key, *skip) <= 0) {
+                    if (skipping && user_comparator_->Compare(ikey.user_key, *skip) <= 0) {
                         // Entry hidden
                     } else {
                         valid_ = true;
@@ -226,8 +219,7 @@ void DBIter::Prev() {
                 ClearSavedValue();
                 return;
             }
-            if (user_comparator_->Compare(ExtractUserKey(iter_->key()),
-                                          saved_key_) < 0) {
+            if (user_comparator_->Compare(ExtractUserKey(iter_->key()), saved_key_) < 0) {
                 break;
             }
         }
@@ -284,8 +276,7 @@ void DBIter::Seek(const Slice& target) {
     direction_ = kForward;
     ClearSavedValue();
     saved_key_.clear();
-    AppendInternalKey(&saved_key_,
-                      ParsedInternalKey(target, sequence_, kValueTypeForSeek));
+    AppendInternalKey(&saved_key_, ParsedInternalKey(target, sequence_, kValueTypeForSeek));
     iter_->Seek(saved_key_);
     if (iter_->Valid()) {
         FindNextUserEntry(false, &saved_key_ /* temporary storage */);
@@ -314,9 +305,8 @@ void DBIter::SeekToLast() {
 
 }  // anonymous namespace
 
-Iterator* NewDBIterator(DBImpl* db, const Comparator* user_key_comparator,
-                        Iterator* internal_iter, SequenceNumber sequence,
-                        uint32_t seed) {
+Iterator* NewDBIterator(DBImpl* db, const Comparator* user_key_comparator, Iterator* internal_iter,
+                        SequenceNumber sequence, uint32_t seed) {
     return new DBIter(db, user_key_comparator, internal_iter, sequence, seed);
 }
 

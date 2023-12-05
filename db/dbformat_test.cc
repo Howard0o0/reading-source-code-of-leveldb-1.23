@@ -10,8 +10,7 @@
 
 namespace leveldb {
 
-static std::string IKey(const std::string& user_key, uint64_t seq,
-                        ValueType vt) {
+static std::string IKey(const std::string& user_key, uint64_t seq, ValueType vt) {
     std::string encoded;
     AppendInternalKey(&encoded, ParsedInternalKey(user_key, seq, vt));
     return encoded;
@@ -19,8 +18,7 @@ static std::string IKey(const std::string& user_key, uint64_t seq,
 
 static std::string Shorten(const std::string& s, const std::string& l) {
     std::string result = s;
-    InternalKeyComparator(BytewiseComparator())
-        .FindShortestSeparator(&result, l);
+    InternalKeyComparator(BytewiseComparator()).FindShortestSeparator(&result, l);
     return result;
 }
 
@@ -74,45 +72,36 @@ TEST(FormatTest, InternalKey_DecodeFromEmpty) {
 
 TEST(FormatTest, InternalKeyShortSeparator) {
     // When user keys are same
-    ASSERT_EQ(
-        IKey("foo", 100, kTypeValue),
-        Shorten(IKey("foo", 100, kTypeValue), IKey("foo", 99, kTypeValue)));
-    ASSERT_EQ(
-        IKey("foo", 100, kTypeValue),
-        Shorten(IKey("foo", 100, kTypeValue), IKey("foo", 101, kTypeValue)));
-    ASSERT_EQ(
-        IKey("foo", 100, kTypeValue),
-        Shorten(IKey("foo", 100, kTypeValue), IKey("foo", 100, kTypeValue)));
-    ASSERT_EQ(
-        IKey("foo", 100, kTypeValue),
-        Shorten(IKey("foo", 100, kTypeValue), IKey("foo", 100, kTypeDeletion)));
+    ASSERT_EQ(IKey("foo", 100, kTypeValue),
+              Shorten(IKey("foo", 100, kTypeValue), IKey("foo", 99, kTypeValue)));
+    ASSERT_EQ(IKey("foo", 100, kTypeValue),
+              Shorten(IKey("foo", 100, kTypeValue), IKey("foo", 101, kTypeValue)));
+    ASSERT_EQ(IKey("foo", 100, kTypeValue),
+              Shorten(IKey("foo", 100, kTypeValue), IKey("foo", 100, kTypeValue)));
+    ASSERT_EQ(IKey("foo", 100, kTypeValue),
+              Shorten(IKey("foo", 100, kTypeValue), IKey("foo", 100, kTypeDeletion)));
 
     // When user keys are misordered
-    ASSERT_EQ(
-        IKey("foo", 100, kTypeValue),
-        Shorten(IKey("foo", 100, kTypeValue), IKey("bar", 99, kTypeValue)));
+    ASSERT_EQ(IKey("foo", 100, kTypeValue),
+              Shorten(IKey("foo", 100, kTypeValue), IKey("bar", 99, kTypeValue)));
 
     // When user keys are different, but correctly ordered
-    ASSERT_EQ(
-        IKey("g", kMaxSequenceNumber, kValueTypeForSeek),
-        Shorten(IKey("foo", 100, kTypeValue), IKey("hello", 200, kTypeValue)));
+    ASSERT_EQ(IKey("g", kMaxSequenceNumber, kValueTypeForSeek),
+              Shorten(IKey("foo", 100, kTypeValue), IKey("hello", 200, kTypeValue)));
 
     // When start user key is prefix of limit user key
-    ASSERT_EQ(
-        IKey("foo", 100, kTypeValue),
-        Shorten(IKey("foo", 100, kTypeValue), IKey("foobar", 200, kTypeValue)));
+    ASSERT_EQ(IKey("foo", 100, kTypeValue),
+              Shorten(IKey("foo", 100, kTypeValue), IKey("foobar", 200, kTypeValue)));
 
     // When limit user key is prefix of start user key
-    ASSERT_EQ(
-        IKey("foobar", 100, kTypeValue),
-        Shorten(IKey("foobar", 100, kTypeValue), IKey("foo", 200, kTypeValue)));
+    ASSERT_EQ(IKey("foobar", 100, kTypeValue),
+              Shorten(IKey("foobar", 100, kTypeValue), IKey("foo", 200, kTypeValue)));
 }
 
 TEST(FormatTest, InternalKeyShortestSuccessor) {
     ASSERT_EQ(IKey("g", kMaxSequenceNumber, kValueTypeForSeek),
               ShortSuccessor(IKey("foo", 100, kTypeValue)));
-    ASSERT_EQ(IKey("\xff\xff", 100, kTypeValue),
-              ShortSuccessor(IKey("\xff\xff", 100, kTypeValue)));
+    ASSERT_EQ(IKey("\xff\xff", 100, kTypeValue), ShortSuccessor(IKey("\xff\xff", 100, kTypeValue)));
 }
 
 TEST(FormatTest, ParsedInternalKeyDebugString) {

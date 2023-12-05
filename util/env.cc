@@ -47,8 +47,8 @@ void Log(Logger* info_log, const char* format, ...) {
     }
 }
 
-static Status DoWriteStringToFile(Env* env, const Slice& data,
-                                  const std::string& fname, bool should_sync) {
+static Status DoWriteStringToFile(Env* env, const Slice& data, const std::string& fname,
+                                  bool should_sync) {
     WritableFile* file;
     Status s = env->NewWritableFile(fname, &file);
     if (!s.ok()) {
@@ -68,13 +68,11 @@ static Status DoWriteStringToFile(Env* env, const Slice& data,
     return s;
 }
 
-Status WriteStringToFile(Env* env, const Slice& data,
-                         const std::string& fname) {
+Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname) {
     return DoWriteStringToFile(env, data, fname, false);
 }
 
-Status WriteStringToFileSync(Env* env, const Slice& data,
-                             const std::string& fname) {
+Status WriteStringToFileSync(Env* env, const Slice& data, const std::string& fname) {
     return DoWriteStringToFile(env, data, fname, true);
 }
 

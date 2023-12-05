@@ -44,8 +44,8 @@ Status Footer::DecodeFrom(Slice* input) {
     const char* magic_ptr = input->data() + kEncodedLength - 8;
     const uint32_t magic_lo = DecodeFixed32(magic_ptr);
     const uint32_t magic_hi = DecodeFixed32(magic_ptr + 4);
-    const uint64_t magic = ((static_cast<uint64_t>(magic_hi) << 32) |
-                            (static_cast<uint64_t>(magic_lo)));
+    const uint64_t magic =
+        ((static_cast<uint64_t>(magic_hi) << 32) | (static_cast<uint64_t>(magic_lo)));
     if (magic != kTableMagicNumber) {
         return Status::Corruption("not an sstable (bad magic number)");
     }
@@ -62,8 +62,8 @@ Status Footer::DecodeFrom(Slice* input) {
     return result;
 }
 
-Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
-                 const BlockHandle& handle, BlockContents* result) {
+Status ReadBlock(RandomAccessFile* file, const ReadOptions& options, const BlockHandle& handle,
+                 BlockContents* result) {
     result->data = Slice();
     result->cachable = false;
     result->heap_allocated = false;
@@ -73,8 +73,7 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
     size_t n = static_cast<size_t>(handle.size());
     char* buf = new char[n + kBlockTrailerSize];
     Slice contents;
-    Status s =
-        file->Read(handle.offset(), n + kBlockTrailerSize, &contents, buf);
+    Status s = file->Read(handle.offset(), n + kBlockTrailerSize, &contents, buf);
     if (!s.ok()) {
         delete[] buf;
         return s;
@@ -118,15 +117,13 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
             size_t ulength = 0;
             if (!port::Snappy_GetUncompressedLength(data, n, &ulength)) {
                 delete[] buf;
-                return Status::Corruption(
-                    "corrupted compressed block contents");
+                return Status::Corruption("corrupted compressed block contents");
             }
             char* ubuf = new char[ulength];
             if (!port::Snappy_Uncompress(data, n, ubuf)) {
                 delete[] buf;
                 delete[] ubuf;
-                return Status::Corruption(
-                    "corrupted compressed block contents");
+                return Status::Corruption("corrupted compressed block contents");
             }
             delete[] buf;
             result->data = Slice(ubuf, ulength);

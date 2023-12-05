@@ -37,18 +37,15 @@ class DBImpl : public DB {
     ~DBImpl() override;
 
     // Implementations of the DB interface
-    Status Put(const WriteOptions&, const Slice& key,
-               const Slice& value) override;
+    Status Put(const WriteOptions&, const Slice& key, const Slice& value) override;
     Status Delete(const WriteOptions&, const Slice& key) override;
     Status Write(const WriteOptions& options, WriteBatch* updates) override;
-    Status Get(const ReadOptions& options, const Slice& key,
-               std::string* value) override;
+    Status Get(const ReadOptions& options, const Slice& key, std::string* value) override;
     Iterator* NewIterator(const ReadOptions&) override;
     const Snapshot* GetSnapshot() override;
     void ReleaseSnapshot(const Snapshot* snapshot) override;
     bool GetProperty(const Slice& property, std::string* value) override;
-    void GetApproximateSizes(const Range* range, int n,
-                             uint64_t* sizes) override;
+    void GetApproximateSizes(const Range* range, int n, uint64_t* sizes) override;
     void CompactRange(const Slice* begin, const Slice* end) override;
 
     // Extra methods (for testing) that are not in the public DB interface
@@ -103,8 +100,7 @@ class DBImpl : public DB {
         int64_t bytes_written;
     };
 
-    Iterator* NewInternalIterator(const ReadOptions&,
-                                  SequenceNumber* latest_snapshot,
+    Iterator* NewInternalIterator(const ReadOptions&, SequenceNumber* latest_snapshot,
                                   uint32_t* seed);
 
     Status NewDB();
@@ -112,8 +108,7 @@ class DBImpl : public DB {
     // Recover the descriptor from persistent storage.  May do a significant
     // amount of work to recover recently logged updates.  Any changes to
     // be made to the descriptor are added to *edit.
-    Status Recover(VersionEdit* edit, bool* save_manifest)
-        EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+    Status Recover(VersionEdit* edit, bool* save_manifest) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
     void MaybeIgnoreError(Status* s) const;
 
@@ -125,9 +120,8 @@ class DBImpl : public DB {
     // Errors are recorded in bg_error_.
     void CompactMemTable() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
-    Status RecoverLogFile(uint64_t log_number, bool last_log,
-                          bool* save_manifest, VersionEdit* edit,
-                          SequenceNumber* max_sequence)
+    Status RecoverLogFile(uint64_t log_number, bool last_log, bool* save_manifest,
+                          VersionEdit* edit, SequenceNumber* max_sequence)
         EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
     Status WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
@@ -135,8 +129,7 @@ class DBImpl : public DB {
 
     Status MakeRoomForWrite(bool force /* compact even if there is room? */)
         EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-    WriteBatch* BuildBatchGroup(Writer** last_writer)
-        EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+    WriteBatch* BuildBatchGroup(Writer** last_writer) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
     void RecordBackgroundError(const Status& s);
 
@@ -144,20 +137,14 @@ class DBImpl : public DB {
     static void BGWork(void* db);
     void BackgroundCall();
     void BackgroundCompaction() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-    void CleanupCompaction(CompactionState* compact)
-        EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-    Status DoCompactionWork(CompactionState* compact)
-        EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+    void CleanupCompaction(CompactionState* compact) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+    Status DoCompactionWork(CompactionState* compact) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
     Status OpenCompactionOutputFile(CompactionState* compact);
-    Status FinishCompactionOutputFile(CompactionState* compact,
-                                      Iterator* input);
-    Status InstallCompactionResults(CompactionState* compact)
-        EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+    Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
+    Status InstallCompactionResults(CompactionState* compact) EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
-    const Comparator* user_comparator() const {
-        return internal_comparator_.user_comparator();
-    }
+    const Comparator* user_comparator() const { return internal_comparator_.user_comparator(); }
 
     // Constant after construction
     Env* const env_;
@@ -211,10 +198,8 @@ class DBImpl : public DB {
 
 // Sanitize db options.  The caller should delete result.info_log if
 // it is not equal to src.info_log.
-Options SanitizeOptions(const std::string& db,
-                        const InternalKeyComparator* icmp,
-                        const InternalFilterPolicy* ipolicy,
-                        const Options& src);
+Options SanitizeOptions(const std::string& db, const InternalKeyComparator* icmp,
+                        const InternalFilterPolicy* ipolicy, const Options& src);
 
 }  // namespace leveldb
 

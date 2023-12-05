@@ -41,23 +41,23 @@ TEST(SkipTest, RandomHeightProbabilityDistribution) {
     SkipList<Key, Comparator> list(cmp, &arena);
 
     std::unordered_map<int, int> height_counts;
-    const int num_samples = 1000000; // Number of samples for the test
+    const int num_samples = 1000000;  // Number of samples for the test
 
     for (int i = 0; i < num_samples; ++i) {
         int height = list.RandomHeight();
         height_counts[height]++;
     }
 
-    // 误差限制在1%. 
-    const double tolerance = 0.01; // 1% tolerance
+    // 误差限制在1%.
+    const double tolerance = 0.01;  // 1% tolerance
 
     // 层高为1的概率为0.75.
-    // 计算过程: 
+    // 计算过程:
     //      概率因子为0.25, 也就是抛硬币正面朝上的概率为0.25, 反面朝上的概率为0.75;
     //      当抛硬币结果是正面朝上时, 可以将层高加1, 再继续抛硬币.
     //      从第1层开始抛硬币, 若需要层高为1,
     //      则第一次抛硬币的结果就应该是方面朝上, 概率为0.75;
-    double expected_probability = 0.75; 
+    double expected_probability = 0.75;
     for (int i = 1; i <= 12; ++i) {
         // 计算层高为i的概率
         double actual_probability = static_cast<double>(height_counts[i]) / num_samples;
@@ -151,8 +151,8 @@ TEST(SkipTest, InsertAndLookup) {
         iter.SeekToLast();
 
         // Compare against model iterator
-        for (std::set<Key>::reverse_iterator model_iter = keys.rbegin();
-             model_iter != keys.rend(); ++model_iter) {
+        for (std::set<Key>::reverse_iterator model_iter = keys.rbegin(); model_iter != keys.rend();
+             ++model_iter) {
             ASSERT_TRUE(iter.Valid());
             ASSERT_EQ(*model_iter, iter.key());
             iter.Prev();
@@ -200,15 +200,12 @@ class ConcurrentTest {
 
     static Key MakeKey(uint64_t k, uint64_t g) {
         static_assert(sizeof(Key) == sizeof(uint64_t), "");
-        assert(k <=
-               K);  // We sometimes pass K to seek to the end of the skiplist
+        assert(k <= K);  // We sometimes pass K to seek to the end of the skiplist
         assert(g <= 0xffffffffu);
         return ((k << 40) | (g << 8) | (HashNumbers(k, g) & 0xff));
     }
 
-    static bool IsValidKey(Key k) {
-        return hash(k) == (HashNumbers(key(k), gen(k)) & 0xff);
-    }
+    static bool IsValidKey(Key k) { return hash(k) == (HashNumbers(key(k), gen(k)) & 0xff); }
 
     static Key RandomTarget(Random* rnd) {
         switch (rnd->Next() % 10) {
@@ -227,9 +224,7 @@ class ConcurrentTest {
     // Per-key generation
     struct State {
         std::atomic<int> generation[K];
-        void Set(int k, int v) {
-            generation[k].store(v, std::memory_order_release);
-        }
+        void Set(int k, int v) { generation[k].store(v, std::memory_order_release); }
         int Get(int k) { return generation[k].load(std::memory_order_acquire); }
 
         State() {
@@ -287,9 +282,8 @@ class ConcurrentTest {
 
                 // Note that generation 0 is never inserted, so it is ok if
                 // <*,0,*> is missing.
-                ASSERT_TRUE(
-                    (gen(pos) == 0) ||
-                    (gen(pos) > static_cast<Key>(initial_state.Get(key(pos)))))
+                ASSERT_TRUE((gen(pos) == 0) ||
+                            (gen(pos) > static_cast<Key>(initial_state.Get(key(pos)))))
                     << "key: " << key(pos) << "; gen: " << gen(pos)
                     << "; initgen: " << initial_state.Get(key(pos));
 
@@ -341,8 +335,7 @@ class TestState {
 
     enum ReaderState { STARTING, RUNNING, DONE };
 
-    explicit TestState(int s)
-        : seed_(s), quit_flag_(false), state_(STARTING), state_cv_(&mu_) {}
+    explicit TestState(int s) : seed_(s), quit_flag_(false), state_(STARTING), state_cv_(&mu_) {}
 
     void Wait(ReaderState s) LOCKS_EXCLUDED(mu_) {
         mu_.Lock();

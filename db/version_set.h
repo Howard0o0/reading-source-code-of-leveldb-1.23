@@ -42,8 +42,8 @@ class WritableFile;
 // Return the smallest index i such that files[i]->largest >= key.
 // Return files.size() if there is no such file.
 // REQUIRES: "files" contains a sorted list of non-overlapping files.
-int FindFile(const InternalKeyComparator& icmp,
-             const std::vector<FileMetaData*>& files, const Slice& key);
+int FindFile(const InternalKeyComparator& icmp, const std::vector<FileMetaData*>& files,
+             const Slice& key);
 
 // Returns true iff some file in "files" overlaps the user key range
 // [*smallest,*largest].
@@ -51,10 +51,8 @@ int FindFile(const InternalKeyComparator& icmp,
 // largest==nullptr represents a key largest than all keys in the DB.
 // REQUIRES: If disjoint_sorted_files, files[] contains disjoint ranges
 //           in sorted order.
-bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
-                           bool disjoint_sorted_files,
-                           const std::vector<FileMetaData*>& files,
-                           const Slice* smallest_user_key,
+bool SomeFileOverlapsRange(const InternalKeyComparator& icmp, bool disjoint_sorted_files,
+                           const std::vector<FileMetaData*>& files, const Slice* smallest_user_key,
                            const Slice* largest_user_key);
 
 /* SSTable 版本控制。在 leveldb 中，一个 Version
@@ -78,8 +76,7 @@ class Version {
     // REQUIRES: This version has been saved (see VersionSet::SaveTo)
     void AddIterators(const ReadOptions&, std::vector<Iterator*>* iters);
 
-    Status Get(const ReadOptions&, const LookupKey& key, std::string* val,
-               GetStats* stats);
+    Status Get(const ReadOptions&, const LookupKey& key, std::string* val, GetStats* stats);
 
     // Adds "stats" into the current state.  Returns true if a new
     // compaction may need to be triggered, false otherwise.
@@ -97,24 +94,21 @@ class Version {
     void Ref();
     void Unref();
 
-    void GetOverlappingInputs(
-        int level,
-        const InternalKey* begin,  // nullptr means before all keys
-        const InternalKey* end,    // nullptr means after all keys
-        std::vector<FileMetaData*>* inputs);
+    void GetOverlappingInputs(int level,
+                              const InternalKey* begin,  // nullptr means before all keys
+                              const InternalKey* end,    // nullptr means after all keys
+                              std::vector<FileMetaData*>* inputs);
 
     // Returns true iff some file in the specified level overlaps
     // some part of [*smallest_user_key,*largest_user_key].
     // smallest_user_key==nullptr represents a key smaller than all the DB's
     // keys. largest_user_key==nullptr represents a key largest than all the
     // DB's keys.
-    bool OverlapInLevel(int level, const Slice* smallest_user_key,
-                        const Slice* largest_user_key);
+    bool OverlapInLevel(int level, const Slice* smallest_user_key, const Slice* largest_user_key);
 
     // Return the level at which we should place a new memtable compaction
     // result that covers the range [smallest_user_key,largest_user_key].
-    int PickLevelForMemTableOutput(const Slice& smallest_user_key,
-                                   const Slice& largest_user_key);
+    int PickLevelForMemTableOutput(const Slice& smallest_user_key, const Slice& largest_user_key);
 
     int NumFiles(int level) const { return files_[level].size(); }
 
@@ -183,8 +177,8 @@ class Version {
 
 class VersionSet {
    public:
-    VersionSet(const std::string& dbname, const Options* options,
-               TableCache* table_cache, const InternalKeyComparator*);
+    VersionSet(const std::string& dbname, const Options* options, TableCache* table_cache,
+               const InternalKeyComparator*);
     VersionSet(const VersionSet&) = delete;
     VersionSet& operator=(const VersionSet&) = delete;
 
@@ -195,8 +189,7 @@ class VersionSet {
     // current version.  Will release *mu while actually writing to the file.
     // REQUIRES: *mu is held on entry.
     // REQUIRES: no other thread concurrently calls LogAndApply()
-    Status LogAndApply(VersionEdit* edit, port::Mutex* mu)
-        EXCLUSIVE_LOCKS_REQUIRED(mu);
+    Status LogAndApply(VersionEdit* edit, port::Mutex* mu) EXCLUSIVE_LOCKS_REQUIRED(mu);
 
     // Recover the last saved descriptor from persistent storage.
     Status Recover(bool* save_manifest);
@@ -254,8 +247,7 @@ class VersionSet {
     // the specified level.  Returns nullptr if there is nothing in that
     // level that overlaps the specified range.  Caller should delete
     // the result.
-    Compaction* CompactRange(int level, const InternalKey* begin,
-                             const InternalKey* end);
+    Compaction* CompactRange(int level, const InternalKey* begin, const InternalKey* end);
 
     // Return the maximum overlapping data (in bytes) at next level for any
     // file at a level >= 1.
@@ -296,12 +288,12 @@ class VersionSet {
 
     void Finalize(Version* v);
 
-    void GetRange(const std::vector<FileMetaData*>& inputs,
-                  InternalKey* smallest, InternalKey* largest);
+    void GetRange(const std::vector<FileMetaData*>& inputs, InternalKey* smallest,
+                  InternalKey* largest);
 
     void GetRange2(const std::vector<FileMetaData*>& inputs1,
-                   const std::vector<FileMetaData*>& inputs2,
-                   InternalKey* smallest, InternalKey* largest);
+                   const std::vector<FileMetaData*>& inputs2, InternalKey* smallest,
+                   InternalKey* largest);
 
     void SetupOtherInputs(Compaction* c);
 
@@ -323,17 +315,15 @@ class VersionSet {
     uint64_t manifest_file_number_;
     uint64_t last_sequence_;
     uint64_t log_number_;
-    uint64_t
-        prev_log_number_;  // 0 or backing store for memtable being compacted
+    uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
     /* part 3: Opened lazily, manifest 相关 */
     WritableFile* descriptor_file_;
     log::Writer* descriptor_log_;
 
     /* part 4: Double Linked List */
-    Version
-        dummy_versions_;  // Head of circular doubly-linked list of versions.
-    Version* current_;    // == dummy_versions_.prev_
+    Version dummy_versions_;  // Head of circular doubly-linked list of versions.
+    Version* current_;        // == dummy_versions_.prev_
 
     /* part 5: Compaction 相关
      *

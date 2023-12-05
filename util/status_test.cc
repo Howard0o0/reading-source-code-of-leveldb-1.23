@@ -25,8 +25,7 @@ TEST(Status, MoveConstructor) {
         Status status2 = std::move(status);
 
         ASSERT_TRUE(status2.IsNotFound());
-        ASSERT_EQ("NotFound: custom NotFound status message",
-                  status2.ToString());
+        ASSERT_EQ("NotFound: custom NotFound status message", status2.ToString());
     }
 
     {

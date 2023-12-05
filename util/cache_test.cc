@@ -43,8 +43,7 @@ class CacheTest : public testing::Test {
 
     int Lookup(int key) {
         Cache::Handle* handle = cache_->Lookup(EncodeKey(key));
-        const int r =
-            (handle == nullptr) ? -1 : DecodeValue(cache_->Value(handle));
+        const int r = (handle == nullptr) ? -1 : DecodeValue(cache_->Value(handle));
         if (handle != nullptr) {
             cache_->Release(handle);
         }
@@ -52,13 +51,12 @@ class CacheTest : public testing::Test {
     }
 
     void Insert(int key, int value, int charge = 1) {
-        cache_->Release(cache_->Insert(EncodeKey(key), EncodeValue(value),
-                                       charge, &CacheTest::Deleter));
+        cache_->Release(
+            cache_->Insert(EncodeKey(key), EncodeValue(value), charge, &CacheTest::Deleter));
     }
 
     Cache::Handle* InsertAndReturnHandle(int key, int value, int charge = 1) {
-        return cache_->Insert(EncodeKey(key), EncodeValue(value), charge,
-                              &CacheTest::Deleter);
+        return cache_->Insert(EncodeKey(key), EncodeValue(value), charge, &CacheTest::Deleter);
     }
 
     void Erase(int key) { cache_->Erase(EncodeKey(key)); }

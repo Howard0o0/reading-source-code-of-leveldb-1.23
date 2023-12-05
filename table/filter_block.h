@@ -47,10 +47,10 @@ class FilterBlockBuilder {
    private:
     void GenerateFilter(); /* 构建一个 Filter */
 
-    const FilterPolicy* policy_; /* filter 类型，如 BloomFilterPolicy */
-    std::string keys_;           /* User Keys，全部塞到一个 string 中 */
-    std::vector<size_t> start_; /* 每一个 User Key 在 keys_ 中的起始位置 */
-    std::string result_; /* keys_ 通过 policy_ 计算出来的 filtered data */
+    const FilterPolicy* policy_;  /* filter 类型，如 BloomFilterPolicy */
+    std::string keys_;            /* User Keys，全部塞到一个 string 中 */
+    std::vector<size_t> start_;   /* 每一个 User Key 在 keys_ 中的起始位置 */
+    std::string result_;          /* keys_ 通过 policy_ 计算出来的 filtered data */
     std::vector<Slice> tmp_keys_; /* policy_->CreateFilter() 的参数 */
 
     /* filter 在 result_ 中的位置, filter_offsets_.size() 就是 Bloom Filter

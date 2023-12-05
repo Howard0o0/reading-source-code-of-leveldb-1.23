@@ -16,8 +16,7 @@ namespace log {
 
 Reader::Reporter::~Reporter() = default;
 
-Reader::Reader(SequentialFile* file, Reporter* reporter, bool checksum,
-               uint64_t initial_offset)
+Reader::Reader(SequentialFile* file, Reporter* reporter, bool checksum, uint64_t initial_offset)
     : file_(file),
       reporter_(reporter),
       checksum_(checksum),
@@ -75,9 +74,8 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
         // ReadPhysicalRecord may have only had an empty trailer remaining in
         // its internal buffer. Calculate the offset of the next physical record
         // now that it has returned, properly accounting for its header size.
-        uint64_t physical_record_offset = end_of_buffer_offset_ -
-                                          buffer_.size() - kHeaderSize -
-                                          fragment.size();
+        uint64_t physical_record_offset =
+            end_of_buffer_offset_ - buffer_.size() - kHeaderSize - fragment.size();
 
         if (resyncing_) {
             if (record_type == kMiddleType) {
@@ -98,8 +96,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
                     // of a block followed by a kFullType or kFirstType record
                     // at the beginning of the next block.
                     if (!scratch->empty()) {
-                        ReportCorruption(scratch->size(),
-                                         "partial record without end(1)");
+                        ReportCorruption(scratch->size(), "partial record without end(1)");
                     }
                 }
                 prospective_record_offset = physical_record_offset;
@@ -115,8 +112,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
                     // of a block followed by a kFullType or kFirstType record
                     // at the beginning of the next block.
                     if (!scratch->empty()) {
-                        ReportCorruption(scratch->size(),
-                                         "partial record without end(2)");
+                        ReportCorruption(scratch->size(), "partial record without end(2)");
                     }
                 }
                 prospective_record_offset = physical_record_offset;
@@ -126,8 +122,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
 
             case kMiddleType:
                 if (!in_fragmented_record) {
-                    ReportCorruption(fragment.size(),
-                                     "missing start of fragmented record(1)");
+                    ReportCorruption(fragment.size(), "missing start of fragmented record(1)");
                 } else {
                     scratch->append(fragment.data(), fragment.size());
                 }
@@ -135,8 +130,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
 
             case kLastType:
                 if (!in_fragmented_record) {
-                    ReportCorruption(fragment.size(),
-                                     "missing start of fragmented record(2)");
+                    ReportCorruption(fragment.size(), "missing start of fragmented record(2)");
                 } else {
                     scratch->append(fragment.data(), fragment.size());
                     *record = Slice(*scratch);
@@ -157,8 +151,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
 
             case kBadRecord:
                 if (in_fragmented_record) {
-                    ReportCorruption(scratch->size(),
-                                     "error in middle of record");
+                    ReportCorruption(scratch->size(), "error in middle of record");
                     in_fragmented_record = false;
                     scratch->clear();
                 }
@@ -166,10 +159,8 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
 
             default: {
                 char buf[40];
-                std::snprintf(buf, sizeof(buf), "unknown record type %u",
-                              record_type);
-                ReportCorruption((fragment.size() +
-                                  (in_fragmented_record ? scratch->size() : 0)),
+                std::snprintf(buf, sizeof(buf), "unknown record type %u", record_type);
+                ReportCorruption((fragment.size() + (in_fragmented_record ? scratch->size() : 0)),
                                  buf);
                 in_fragmented_record = false;
                 scratch->clear();
@@ -187,8 +178,7 @@ void Reader::ReportCorruption(uint64_t bytes, const char* reason) {
 }
 
 void Reader::ReportDrop(uint64_t bytes, const Status& reason) {
-    if (reporter_ != nullptr &&
-        end_of_buffer_offset_ - buffer_.size() - bytes >= initial_offset_) {
+    if (reporter_ != nullptr && end_of_buffer_offset_ - buffer_.size() - bytes >= initial_offset_) {
         reporter_->Corruption(static_cast<size_t>(bytes), reason);
     }
 }
@@ -199,8 +189,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
             if (!eof_) {
                 // Last read was a full read, so this is a trailer to skip
                 buffer_.clear();
-                Status status =
-                    file_->Read(kBlockSize, &buffer_, backing_store_);
+                Status status = file_->Read(kBlockSize, &buffer_, backing_store_);
                 end_of_buffer_offset_ += buffer_.size();
                 if (!status.ok()) {
                     buffer_.clear();
@@ -267,8 +256,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
         buffer_.remove_prefix(kHeaderSize + length);
 
         // Skip physical record that started before initial_offset_
-        if (end_of_buffer_offset_ - buffer_.size() - kHeaderSize - length <
-            initial_offset_) {
+        if (end_of_buffer_offset_ - buffer_.size() - kHeaderSize - length < initial_offset_) {
             result->clear();
             return kBadRecord;
         }

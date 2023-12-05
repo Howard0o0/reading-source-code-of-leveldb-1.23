@@ -80,8 +80,7 @@ class Limiter {
     // If another resource is available, acquire it and return true.
     // Else return false.
     bool Acquire() {
-        int old_acquires_allowed =
-            acquires_allowed_.fetch_sub(1, std::memory_order_relaxed);
+        int old_acquires_allowed = acquires_allowed_.fetch_sub(1, std::memory_order_relaxed);
 
         if (old_acquires_allowed > 0) return true;
 
@@ -91,9 +90,7 @@ class Limiter {
 
     // Release a resource acquired by a previous call to Acquire() that returned
     // true.
-    void Release() {
-        acquires_allowed_.fetch_add(1, std::memory_order_relaxed);
-    }
+    void Release() { acquires_allowed_.fetch_add(1, std::memory_order_relaxed); }
 
    private:
     // The number of available resources.
@@ -109,8 +106,7 @@ class Limiter {
 // by the SequentialFile API.
 class PosixSequentialFile final : public SequentialFile {
    public:
-    PosixSequentialFile(std::string filename, int fd)
-        : fd_(fd), filename_(filename) {}
+    PosixSequentialFile(std::string filename, int fd) : fd_(fd), filename_(filename) {}
     ~PosixSequentialFile() override { close(fd_); }
 
     Status Read(size_t n, Slice* result, char* scratch) override {
@@ -170,8 +166,7 @@ class PosixRandomAccessFile final : public RandomAccessFile {
         }
     }
 
-    Status Read(uint64_t offset, size_t n, Slice* result,
-                char* scratch) const override {
+    Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
         int fd = fd_;
         if (!has_permanent_fd_) {
             fd = ::open(filename_.c_str(), O_RDONLY | kOpenBaseFlags);
@@ -198,9 +193,8 @@ class PosixRandomAccessFile final : public RandomAccessFile {
     }
 
    private:
-    const bool
-        has_permanent_fd_;  // If false, the file is opened on every read.
-    const int fd_;          // -1 if has_permanent_fd_ is false.
+    const bool has_permanent_fd_;  // If false, the file is opened on every read.
+    const int fd_;                 // -1 if has_permanent_fd_ is false.
     Limiter* const fd_limiter_;
     const std::string filename_;
 };
@@ -231,8 +225,7 @@ class PosixMmapReadableFile final : public RandomAccessFile {
         mmap_limiter_->Release();
     }
 
-    Status Read(uint64_t offset, size_t n, Slice* result,
-                char* scratch) const override {
+    Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
         if (offset + n > length_) {
             *result = Slice();
             return PosixError(filename_, EINVAL);
@@ -420,8 +413,7 @@ class PosixWritableFile final : public WritableFile {
         // does, the splitting was done incorrectly.
         assert(filename.find('/', separator_pos + 1) == std::string::npos);
 
-        return Slice(filename.data() + separator_pos + 1,
-                     filename.length() - separator_pos - 1);
+        return Slice(filename.data() + separator_pos + 1, filename.length() - separator_pos - 1);
     }
 
     // True if the given file is a manifest file.
@@ -453,8 +445,7 @@ int LockOrUnlock(int fd, bool lock) {
 // Instances are thread-safe because they are immutable.
 class PosixFileLock : public FileLock {
    public:
-    PosixFileLock(int fd, std::string filename)
-        : fd_(fd), filename_(std::move(filename)) {}
+    PosixFileLock(int fd, std::string filename) : fd_(fd), filename_(std::move(filename)) {}
 
     int fd() const { return fd_; }
     const std::string& filename() const { return filename_; }
@@ -494,14 +485,12 @@ class PosixEnv : public Env {
    public:
     PosixEnv();
     ~PosixEnv() override {
-        static const char msg[] =
-            "PosixEnv singleton destroyed. Unsupported behavior!\n";
+        static const char msg[] = "PosixEnv singleton destroyed. Unsupported behavior!\n";
         std::fwrite(msg, 1, sizeof(msg), stderr);
         std::abort();
     }
 
-    Status NewSequentialFile(const std::string& filename,
-                             SequentialFile** result) override {
+    Status NewSequentialFile(const std::string& filename, SequentialFile** result) override {
         int fd = ::open(filename.c_str(), O_RDONLY | kOpenBaseFlags);
         if (fd < 0) {
             *result = nullptr;
@@ -512,8 +501,7 @@ class PosixEnv : public Env {
         return Status::OK();
     }
 
-    Status NewRandomAccessFile(const std::string& filename,
-                               RandomAccessFile** result) override {
+    Status NewRandomAccessFile(const std::string& filename, RandomAccessFile** result) override {
         *result = nullptr;
         int fd = ::open(filename.c_str(), O_RDONLY | kOpenBaseFlags);
         if (fd < 0) {
@@ -528,12 +516,10 @@ class PosixEnv : public Env {
         uint64_t file_size;
         Status status = GetFileSize(filename, &file_size);
         if (status.ok()) {
-            void* mmap_base = ::mmap(/*addr=*/nullptr, file_size, PROT_READ,
-                                     MAP_SHARED, fd, 0);
+            void* mmap_base = ::mmap(/*addr=*/nullptr, file_size, PROT_READ, MAP_SHARED, fd, 0);
             if (mmap_base != MAP_FAILED) {
-                *result = new PosixMmapReadableFile(
-                    filename, reinterpret_cast<char*>(mmap_base), file_size,
-                    &mmap_limiter_);
+                *result = new PosixMmapReadableFile(filename, reinterpret_cast<char*>(mmap_base),
+                                                    file_size, &mmap_limiter_);
             } else {
                 status = PosixError(filename, errno);
             }
@@ -545,10 +531,8 @@ class PosixEnv : public Env {
         return status;
     }
 
-    Status NewWritableFile(const std::string& filename,
-                           WritableFile** result) override {
-        int fd = ::open(filename.c_str(),
-                        O_TRUNC | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
+    Status NewWritableFile(const std::string& filename, WritableFile** result) override {
+        int fd = ::open(filename.c_str(), O_TRUNC | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
         if (fd < 0) {
             *result = nullptr;
             return PosixError(filename, errno);
@@ -558,10 +542,8 @@ class PosixEnv : public Env {
         return Status::OK();
     }
 
-    Status NewAppendableFile(const std::string& filename,
-                             WritableFile** result) override {
-        int fd = ::open(filename.c_str(),
-                        O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
+    Status NewAppendableFile(const std::string& filename, WritableFile** result) override {
+        int fd = ::open(filename.c_str(), O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
         if (fd < 0) {
             *result = nullptr;
             return PosixError(filename, errno);
@@ -631,16 +613,14 @@ class PosixEnv : public Env {
     Status LockFile(const std::string& filename, FileLock** lock) override {
         *lock = nullptr;
 
-        int fd =
-            ::open(filename.c_str(), O_RDWR | O_CREAT | kOpenBaseFlags, 0644);
+        int fd = ::open(filename.c_str(), O_RDWR | O_CREAT | kOpenBaseFlags, 0644);
         if (fd < 0) {
             return PosixError(filename, errno);
         }
 
         if (!locks_.Insert(filename)) {
             ::close(fd);
-            return Status::IOError("lock " + filename,
-                                   "already held by process");
+            return Status::IOError("lock " + filename, "already held by process");
         }
 
         if (LockOrUnlock(fd, true) == -1) {
@@ -668,8 +648,7 @@ class PosixEnv : public Env {
     void Schedule(void (*background_work_function)(void* background_work_arg),
                   void* background_work_arg) override;
 
-    void StartThread(void (*thread_main)(void* thread_main_arg),
-                     void* thread_main_arg) override {
+    void StartThread(void (*thread_main)(void* thread_main_arg), void* thread_main_arg) override {
         std::thread new_thread(thread_main, thread_main_arg);
         new_thread.detach();
     }
@@ -680,8 +659,7 @@ class PosixEnv : public Env {
             *result = env;
         } else {
             char buf[100];
-            std::snprintf(buf, sizeof(buf), "/tmp/leveldbtest-%d",
-                          static_cast<int>(::geteuid()));
+            std::snprintf(buf, sizeof(buf), "/tmp/leveldbtest-%d", static_cast<int>(::geteuid()));
             *result = buf;
         }
 
@@ -693,8 +671,7 @@ class PosixEnv : public Env {
     }
 
     Status NewLogger(const std::string& filename, Logger** result) override {
-        int fd = ::open(filename.c_str(),
-                        O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
+        int fd = ::open(filename.c_str(), O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
         if (fd < 0) {
             *result = nullptr;
             return PosixError(filename, errno);
@@ -715,8 +692,7 @@ class PosixEnv : public Env {
         static constexpr uint64_t kUsecondsPerSecond = 1000000;
         struct ::timeval tv;
         ::gettimeofday(&tv, nullptr);
-        return static_cast<uint64_t>(tv.tv_sec) * kUsecondsPerSecond +
-               tv.tv_usec;
+        return static_cast<uint64_t>(tv.tv_sec) * kUsecondsPerSecond + tv.tv_usec;
     }
 
     void SleepForMicroseconds(int micros) override {
@@ -726,9 +702,7 @@ class PosixEnv : public Env {
    private:
     void BackgroundThreadMain();
 
-    static void BackgroundThreadEntryPoint(PosixEnv* env) {
-        env->BackgroundThreadMain();
-    }
+    static void BackgroundThreadEntryPoint(PosixEnv* env) { env->BackgroundThreadMain(); }
 
     // Stores the work item data in a Schedule() call.
     //
@@ -748,8 +722,7 @@ class PosixEnv : public Env {
     port::CondVar background_work_cv_ GUARDED_BY(background_work_mutex_);
     bool started_background_thread_ GUARDED_BY(background_work_mutex_);
 
-    std::queue<BackgroundWorkItem> background_work_queue_
-        GUARDED_BY(background_work_mutex_);
+    std::queue<BackgroundWorkItem> background_work_queue_ GUARDED_BY(background_work_mutex_);
 
     PosixLockTable locks_;  // Thread-safe.
     Limiter mmap_limiter_;  // Thread-safe.
@@ -787,9 +760,8 @@ PosixEnv::PosixEnv()
 
 /* Schedule 方法比较简单，只是将对应的任务函数和函数参数推入至工作队列中，由
  * BackgroundThreadMain() 方法取出任务并执行 */
-void PosixEnv::Schedule(
-    void (*background_work_function)(void* background_work_arg),
-    void* background_work_arg) {
+void PosixEnv::Schedule(void (*background_work_function)(void* background_work_arg),
+                        void* background_work_arg) {
     background_work_mutex_.Lock();
 
     // Start the background thread, if we haven't done so already.
@@ -797,8 +769,7 @@ void PosixEnv::Schedule(
         started_background_thread_ = true;
         /* 启动 Entry Point
          * 线程，本质上就是一个死循环，从任务队列中取出任务并执行 */
-        std::thread background_thread(PosixEnv::BackgroundThreadEntryPoint,
-                                      this);
+        std::thread background_thread(PosixEnv::BackgroundThreadEntryPoint, this);
         /* 线程要么调用 detach() 和当前线程分离，要么调用 join()
          * 方法等待其执行完毕 */
         background_thread.detach();
@@ -809,8 +780,7 @@ void PosixEnv::Schedule(
         background_work_cv_.Signal();
     }
 
-    background_work_queue_.emplace(background_work_function,
-                                   background_work_arg);
+    background_work_queue_.emplace(background_work_function, background_work_arg);
     background_work_mutex_.Unlock();
 }
 
@@ -857,8 +827,7 @@ class SingletonEnv {
 #if !defined(NDEBUG)
         env_initialized_.store(true, std::memory_order::memory_order_relaxed);
 #endif  // !defined(NDEBUG)
-        static_assert(sizeof(env_storage_) >= sizeof(EnvType),
-                      "env_storage_ will not fit the Env");
+        static_assert(sizeof(env_storage_) >= sizeof(EnvType), "env_storage_ will not fit the Env");
         static_assert(alignof(decltype(env_storage_)) >= alignof(EnvType),
                       "env_storage_ does not meet the Env's alignment needs");
         new (&env_storage_) EnvType();
@@ -877,8 +846,7 @@ class SingletonEnv {
     }
 
    private:
-    typename std::aligned_storage<sizeof(EnvType), alignof(EnvType)>::type
-        env_storage_;
+    typename std::aligned_storage<sizeof(EnvType), alignof(EnvType)>::type env_storage_;
 #if !defined(NDEBUG)
     static std::atomic<bool> env_initialized_;
 #endif  // !defined(NDEBUG)

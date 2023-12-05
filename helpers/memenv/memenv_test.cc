@@ -81,8 +81,7 @@ TEST_F(MemEnvTest, Basics) {
     RandomAccessFile* rand_file;
     ASSERT_TRUE(!env_->NewSequentialFile("/dir/non_existent", &seq_file).ok());
     ASSERT_TRUE(!seq_file);
-    ASSERT_TRUE(
-        !env_->NewRandomAccessFile("/dir/non_existent", &rand_file).ok());
+    ASSERT_TRUE(!env_->NewRandomAccessFile("/dir/non_existent", &rand_file).ok());
     ASSERT_TRUE(!rand_file);
 
     // Check that deleting works.
@@ -115,8 +114,7 @@ TEST_F(MemEnvTest, ReadWrite) {
     ASSERT_LEVELDB_OK(seq_file->Skip(1));
     ASSERT_LEVELDB_OK(seq_file->Read(1000, &result, scratch));  // Read "world".
     ASSERT_EQ(0, result.compare("world"));
-    ASSERT_LEVELDB_OK(
-        seq_file->Read(1000, &result, scratch));  // Try reading past EOF.
+    ASSERT_LEVELDB_OK(seq_file->Read(1000, &result, scratch));  // Try reading past EOF.
     ASSERT_EQ(0, result.size());
     ASSERT_LEVELDB_OK(seq_file->Skip(100));  // Try to skip past end of file.
     ASSERT_LEVELDB_OK(seq_file->Read(1000, &result, scratch));
@@ -125,11 +123,9 @@ TEST_F(MemEnvTest, ReadWrite) {
 
     // Random reads.
     ASSERT_LEVELDB_OK(env_->NewRandomAccessFile("/dir/f", &rand_file));
-    ASSERT_LEVELDB_OK(
-        rand_file->Read(6, 5, &result, scratch));  // Read "world".
+    ASSERT_LEVELDB_OK(rand_file->Read(6, 5, &result, scratch));  // Read "world".
     ASSERT_EQ(0, result.compare("world"));
-    ASSERT_LEVELDB_OK(
-        rand_file->Read(0, 5, &result, scratch));  // Read "hello".
+    ASSERT_LEVELDB_OK(rand_file->Read(0, 5, &result, scratch));  // Read "hello".
     ASSERT_EQ(0, result.compare("hello"));
     ASSERT_LEVELDB_OK(rand_file->Read(10, 100, &result, scratch));  // Read "d".
     ASSERT_EQ(0, result.compare("d"));
@@ -198,8 +194,7 @@ TEST_F(MemEnvTest, LargeWrite) {
 TEST_F(MemEnvTest, OverwriteOpenFile) {
     const char kWrite1Data[] = "Write #1 data";
     const size_t kFileDataLen = sizeof(kWrite1Data) - 1;
-    const std::string kTestFileName =
-        testing::TempDir() + "leveldb-TestFile.dat";
+    const std::string kTestFileName = testing::TempDir() + "leveldb-TestFile.dat";
 
     ASSERT_LEVELDB_OK(WriteStringToFile(env_, kWrite1Data, kTestFileName));
 

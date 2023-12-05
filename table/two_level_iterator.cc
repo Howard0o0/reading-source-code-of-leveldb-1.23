@@ -18,8 +18,8 @@ typedef Iterator* (*BlockFunction)(void*, const ReadOptions&, const Slice&);
 
 class TwoLevelIterator : public Iterator {
    public:
-    TwoLevelIterator(Iterator* index_iter, BlockFunction block_function,
-                     void* arg, const ReadOptions& options);
+    TwoLevelIterator(Iterator* index_iter, BlockFunction block_function, void* arg,
+                     const ReadOptions& options);
 
     ~TwoLevelIterator() override;
 
@@ -69,8 +69,7 @@ class TwoLevelIterator : public Iterator {
     std::string data_block_handle_;
 };
 
-TwoLevelIterator::TwoLevelIterator(Iterator* index_iter,
-                                   BlockFunction block_function, void* arg,
+TwoLevelIterator::TwoLevelIterator(Iterator* index_iter, BlockFunction block_function, void* arg,
                                    const ReadOptions& options)
     : block_function_(block_function),
       arg_(arg),
@@ -149,8 +148,7 @@ void TwoLevelIterator::InitDataBlock() {
         SetDataIterator(nullptr);
     } else {
         Slice handle = index_iter_.value();
-        if (data_iter_.iter() != nullptr &&
-            handle.compare(data_block_handle_) == 0) {
+        if (data_iter_.iter() != nullptr && handle.compare(data_block_handle_) == 0) {
             // data_iter_ is already constructed with this iterator, so
             // no need to change anything
         } else {
@@ -163,8 +161,7 @@ void TwoLevelIterator::InitDataBlock() {
 
 }  // namespace
 
-Iterator* NewTwoLevelIterator(Iterator* index_iter,
-                              BlockFunction block_function, void* arg,
+Iterator* NewTwoLevelIterator(Iterator* index_iter, BlockFunction block_function, void* arg,
                               const ReadOptions& options) {
     return new TwoLevelIterator(index_iter, block_function, arg, options);
 }

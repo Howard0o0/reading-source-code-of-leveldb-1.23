@@ -53,8 +53,7 @@ class LEVELDB_EXPORT Status {
     static Status NotSupported(const Slice& msg, const Slice& msg2 = Slice()) {
         return Status(kNotSupported, msg, msg2);
     }
-    static Status InvalidArgument(const Slice& msg,
-                                  const Slice& msg2 = Slice()) {
+    static Status InvalidArgument(const Slice& msg, const Slice& msg2 = Slice()) {
         return Status(kInvalidArgument, msg, msg2);
     }
     static Status IOError(const Slice& msg, const Slice& msg2 = Slice()) {
@@ -93,9 +92,7 @@ class LEVELDB_EXPORT Status {
         kIOError = 5
     };
 
-    Code code() const {
-        return (state_ == nullptr) ? kOk : static_cast<Code>(state_[4]);
-    }
+    Code code() const { return (state_ == nullptr) ? kOk : static_cast<Code>(state_[4]); }
 
     Status(Code code, const Slice& msg, const Slice& msg2);
     static const char* CopyState(const char* s);

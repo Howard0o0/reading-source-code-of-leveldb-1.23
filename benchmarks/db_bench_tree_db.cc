@@ -97,8 +97,7 @@ class RandomGenerator {
         while (data_.size() < 1048576) {
             // Add a short fragment that is as compressible as specified
             // by FLAGS_compression_ratio.
-            test::CompressibleString(&rnd, FLAGS_compression_ratio, 100,
-                                     &piece);
+            test::CompressibleString(&rnd, FLAGS_compression_ratio, 100, &piece);
             data_.append(piece);
         }
         pos_ = 0;
@@ -151,22 +150,17 @@ class Benchmark {
         const int kKeySize = 16;
         PrintEnvironment();
         std::fprintf(stdout, "Keys:       %d bytes each\n", kKeySize);
-        std::fprintf(
-            stdout, "Values:     %d bytes each (%d bytes after compression)\n",
-            FLAGS_value_size,
-            static_cast<int>(FLAGS_value_size * FLAGS_compression_ratio + 0.5));
+        std::fprintf(stdout, "Values:     %d bytes each (%d bytes after compression)\n",
+                     FLAGS_value_size,
+                     static_cast<int>(FLAGS_value_size * FLAGS_compression_ratio + 0.5));
         std::fprintf(stdout, "Entries:    %d\n", num_);
-        std::fprintf(
-            stdout, "RawSize:    %.1f MB (estimated)\n",
-            ((static_cast<int64_t>(kKeySize + FLAGS_value_size) * num_) /
-             1048576.0));
+        std::fprintf(stdout, "RawSize:    %.1f MB (estimated)\n",
+                     ((static_cast<int64_t>(kKeySize + FLAGS_value_size) * num_) / 1048576.0));
         std::fprintf(
             stdout, "FileSize:   %.1f MB (estimated)\n",
-            (((kKeySize + FLAGS_value_size * FLAGS_compression_ratio) * num_) /
-             1048576.0));
+            (((kKeySize + FLAGS_value_size * FLAGS_compression_ratio) * num_) / 1048576.0));
         PrintWarnings();
-        std::fprintf(stdout,
-                     "------------------------------------------------\n");
+        std::fprintf(stdout, "------------------------------------------------\n");
     }
 
     void PrintWarnings() {
@@ -176,16 +170,13 @@ class Benchmark {
                      "unnecessarily slow\n");
 #endif
 #ifndef NDEBUG
-        std::fprintf(
-            stdout,
-            "WARNING: Assertions are enabled; benchmarks unnecessarily slow\n");
+        std::fprintf(stdout, "WARNING: Assertions are enabled; benchmarks unnecessarily slow\n");
 #endif
     }
 
     void PrintEnvironment() {
-        std::fprintf(
-            stderr, "Kyoto Cabinet:    version %s, lib ver %d, lib rev %d\n",
-            kyotocabinet::VERSION, kyotocabinet::LIBVER, kyotocabinet::LIBREV);
+        std::fprintf(stderr, "Kyoto Cabinet:    version %s, lib ver %d, lib rev %d\n",
+                     kyotocabinet::VERSION, kyotocabinet::LIBVER, kyotocabinet::LIBREV);
 
 #if defined(__linux)
         time_t now = time(nullptr);
@@ -213,8 +204,7 @@ class Benchmark {
                 }
             }
             std::fclose(cpuinfo);
-            std::fprintf(stderr, "CPU:            %d * %s\n", num_cpus,
-                         cpu_type.c_str());
+            std::fprintf(stderr, "CPU:            %d * %s\n", num_cpus, cpu_type.c_str());
             std::fprintf(stderr, "CPUCache:       %s\n", cache_size.c_str());
         }
 #endif
@@ -281,12 +271,11 @@ class Benchmark {
             }
         }
 
-        std::fprintf(stdout, "%-12s : %11.3f micros/op;%s%s\n",
-                     name.ToString().c_str(), (finish - start_) * 1e6 / done_,
-                     (message_.empty() ? "" : " "), message_.c_str());
+        std::fprintf(stdout, "%-12s : %11.3f micros/op;%s%s\n", name.ToString().c_str(),
+                     (finish - start_) * 1e6 / done_, (message_.empty() ? "" : " "),
+                     message_.c_str());
         if (FLAGS_histogram) {
-            std::fprintf(stdout, "Microseconds per op:\n%s\n",
-                         hist_.ToString().c_str());
+            std::fprintf(stdout, "Microseconds per op:\n%s\n", hist_.ToString().c_str());
         }
         std::fflush(stdout);
     }
@@ -354,20 +343,17 @@ class Benchmark {
                 DBSynchronize(db_);
             } else if (name == Slice("fillrandsync")) {
                 write_sync = true;
-                Write(write_sync, RANDOM, FRESH, num_ / 100, FLAGS_value_size,
-                      1);
+                Write(write_sync, RANDOM, FRESH, num_ / 100, FLAGS_value_size, 1);
                 DBSynchronize(db_);
             } else if (name == Slice("fillseqsync")) {
                 write_sync = true;
-                Write(write_sync, SEQUENTIAL, FRESH, num_ / 100,
-                      FLAGS_value_size, 1);
+                Write(write_sync, SEQUENTIAL, FRESH, num_ / 100, FLAGS_value_size, 1);
                 DBSynchronize(db_);
             } else if (name == Slice("fillrand100K")) {
                 Write(write_sync, RANDOM, FRESH, num_ / 1000, 100 * 1000, 1);
                 DBSynchronize(db_);
             } else if (name == Slice("fillseq100K")) {
-                Write(write_sync, SEQUENTIAL, FRESH, num_ / 1000, 100 * 1000,
-                      1);
+                Write(write_sync, SEQUENTIAL, FRESH, num_ / 1000, 100 * 1000, 1);
                 DBSynchronize(db_);
             } else if (name == Slice("readseq")) {
                 ReadSequential();
@@ -386,8 +372,7 @@ class Benchmark {
             } else {
                 known = false;
                 if (name != Slice()) {  // No error message for empty name
-                    std::fprintf(stderr, "unknown benchmark '%s'\n",
-                                 name.ToString().c_str());
+                    std::fprintf(stderr, "unknown benchmark '%s'\n", name.ToString().c_str());
                 }
             }
             if (known) {
@@ -406,14 +391,12 @@ class Benchmark {
         db_num_++;
         std::string test_dir;
         Env::Default()->GetTestDirectory(&test_dir);
-        std::snprintf(file_name, sizeof(file_name), "%s/dbbench_polyDB-%d.kct",
-                      test_dir.c_str(), db_num_);
+        std::snprintf(file_name, sizeof(file_name), "%s/dbbench_polyDB-%d.kct", test_dir.c_str(),
+                      db_num_);
 
         // Create tuning options and open the database
-        int open_options =
-            kyotocabinet::PolyDB::OWRITER | kyotocabinet::PolyDB::OCREATE;
-        int tune_options =
-            kyotocabinet::TreeDB::TSMALL | kyotocabinet::TreeDB::TLINEAR;
+        int open_options = kyotocabinet::PolyDB::OWRITER | kyotocabinet::PolyDB::OCREATE;
+        int tune_options = kyotocabinet::TreeDB::TSMALL | kyotocabinet::TreeDB::TLINEAR;
         if (FLAGS_compression) {
             tune_options |= kyotocabinet::TreeDB::TCOMPRESS;
             db_->tune_compressor(&comp_);
@@ -430,8 +413,8 @@ class Benchmark {
         }
     }
 
-    void Write(bool sync, Order order, DBState state, int num_entries,
-               int value_size, int entries_per_batch) {
+    void Write(bool sync, Order order, DBState state, int num_entries, int value_size,
+               int entries_per_batch) {
         // Create new database if state == FRESH
         if (state == FRESH) {
             if (FLAGS_use_existing_db) {
@@ -452,8 +435,7 @@ class Benchmark {
 
         // Write to database
         for (int i = 0; i < num_entries; i++) {
-            const int k =
-                (order == SEQUENTIAL) ? i : (rand_.Next() % num_entries);
+            const int k = (order == SEQUENTIAL) ? i : (rand_.Next() % num_entries);
             char key[100];
             std::snprintf(key, sizeof(key), "%016d", k);
             bytes_ += value_size + strlen(key);
@@ -498,11 +480,9 @@ int main(int argc, char** argv) {
         char junk;
         if (leveldb::Slice(argv[i]).starts_with("--benchmarks=")) {
             FLAGS_benchmarks = argv[i] + strlen("--benchmarks=");
-        } else if (sscanf(argv[i], "--compression_ratio=%lf%c", &d, &junk) ==
-                   1) {
+        } else if (sscanf(argv[i], "--compression_ratio=%lf%c", &d, &junk) == 1) {
             FLAGS_compression_ratio = d;
-        } else if (sscanf(argv[i], "--histogram=%d%c", &n, &junk) == 1 &&
-                   (n == 0 || n == 1)) {
+        } else if (sscanf(argv[i], "--histogram=%d%c", &n, &junk) == 1 && (n == 0 || n == 1)) {
             FLAGS_histogram = n;
         } else if (sscanf(argv[i], "--num=%d%c", &n, &junk) == 1) {
             FLAGS_num = n;
@@ -514,8 +494,7 @@ int main(int argc, char** argv) {
             FLAGS_cache_size = n;
         } else if (sscanf(argv[i], "--page_size=%d%c", &n, &junk) == 1) {
             FLAGS_page_size = n;
-        } else if (sscanf(argv[i], "--compression=%d%c", &n, &junk) == 1 &&
-                   (n == 0 || n == 1)) {
+        } else if (sscanf(argv[i], "--compression=%d%c", &n, &junk) == 1 && (n == 0 || n == 1)) {
             FLAGS_compression = (n == 1) ? true : false;
         } else if (strncmp(argv[i], "--db=", 5) == 0) {
             FLAGS_db = argv[i] + 5;

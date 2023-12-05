@@ -81,8 +81,7 @@ TEST(WriteBatchTest, Corruption) {
     batch.Delete(Slice("box"));
     WriteBatchInternal::SetSequence(&batch, 200);
     Slice contents = WriteBatchInternal::Contents(&batch);
-    WriteBatchInternal::SetContents(
-        &batch, Slice(contents.data(), contents.size() - 1));
+    WriteBatchInternal::SetContents(&batch, Slice(contents.data(), contents.size() - 1));
     ASSERT_EQ(
         "Put(foo, bar)@200"
         "ParseError()",

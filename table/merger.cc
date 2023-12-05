@@ -66,8 +66,7 @@ class MergingIterator : public Iterator {
                 IteratorWrapper* child = &children_[i];
                 if (child != current_) {
                     child->Seek(key());
-                    if (child->Valid() &&
-                        comparator_->Compare(key(), child->key()) == 0) {
+                    if (child->Valid() && comparator_->Compare(key(), child->key()) == 0) {
                         child->Next();
                     }
                 }
@@ -155,8 +154,7 @@ void MergingIterator::FindSmallest() {
         if (child->Valid()) {
             if (smallest == nullptr) {
                 smallest = child;
-            } else if (comparator_->Compare(child->key(), smallest->key()) <
-                       0) {
+            } else if (comparator_->Compare(child->key(), smallest->key()) < 0) {
                 smallest = child;
             }
         }
@@ -180,8 +178,7 @@ void MergingIterator::FindLargest() {
 }
 }  // namespace
 
-Iterator* NewMergingIterator(const Comparator* comparator, Iterator** children,
-                             int n) {
+Iterator* NewMergingIterator(const Comparator* comparator, Iterator** children, int n) {
     assert(n >= 0);
     if (n == 0) {
         return NewEmptyIterator();

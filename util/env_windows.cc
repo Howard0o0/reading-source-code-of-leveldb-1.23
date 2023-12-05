@@ -50,8 +50,7 @@ std::string GetWindowsErrorMessage(DWORD error_code) {
     char* error_text = nullptr;
     // Use MBCS version of FormatMessage to match return value.
     size_t error_text_size = ::FormatMessageA(
-        FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER |
-            FORMAT_MESSAGE_IGNORE_INSERTS,
+        FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_IGNORE_INSERTS,
         nullptr, error_code, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
         reinterpret_cast<char*>(&error_text), 0, nullptr);
     if (!error_text) {
@@ -63,8 +62,7 @@ std::string GetWindowsErrorMessage(DWORD error_code) {
 }
 
 Status WindowsError(const std::string& context, DWORD error_code) {
-    if (error_code == ERROR_FILE_NOT_FOUND ||
-        error_code == ERROR_PATH_NOT_FOUND)
+    if (error_code == ERROR_FILE_NOT_FOUND || error_code == ERROR_PATH_NOT_FOUND)
         return Status::NotFound(context, GetWindowsErrorMessage(error_code));
     return Status::IOError(context, GetWindowsErrorMessage(error_code));
 }
@@ -92,9 +90,7 @@ class ScopedHandle {
         return ::CloseHandle(h);
     }
 
-    bool is_valid() const {
-        return handle_ != INVALID_HANDLE_VALUE && handle_ != nullptr;
-    }
+    bool is_valid() const { return handle_ != INVALID_HANDLE_VALUE && handle_ != nullptr; }
 
     HANDLE get() const { return handle_; }
 
@@ -123,8 +119,7 @@ class Limiter {
     // If another resource is available, acquire it and return true.
     // Else return false.
     bool Acquire() {
-        int old_acquires_allowed =
-            acquires_allowed_.fetch_sub(1, std::memory_order_relaxed);
+        int old_acquires_allowed = acquires_allowed_.fetch_sub(1, std::memory_order_relaxed);
 
         if (old_acquires_allowed > 0) return true;
 
@@ -134,9 +129,7 @@ class Limiter {
 
     // Release a resource acquired by a previous call to Acquire() that returned
     // true.
-    void Release() {
-        acquires_allowed_.fetch_add(1, std::memory_order_relaxed);
-    }
+    void Release() { acquires_allowed_.fetch_add(1, std::memory_order_relaxed); }
 
    private:
     // The number of available resources.
@@ -158,8 +151,7 @@ class WindowsSequentialFile : public SequentialFile {
         // leveldb files are limited to leveldb::Options::max_file_size which is
         // clamped to 1<<30 or 1 GiB.
         assert(n <= std::numeric_limits<DWORD>::max());
-        if (!::ReadFile(handle_.get(), scratch, static_cast<DWORD>(n),
-                        &bytes_read, nullptr)) {
+        if (!::ReadFile(handle_.get(), scratch, static_cast<DWORD>(n), &bytes_read, nullptr)) {
             return WindowsError(filename_, ::GetLastError());
         }
 
@@ -170,8 +162,7 @@ class WindowsSequentialFile : public SequentialFile {
     Status Skip(uint64_t n) override {
         LARGE_INTEGER distance;
         distance.QuadPart = n;
-        if (!::SetFilePointerEx(handle_.get(), distance, nullptr,
-                                FILE_CURRENT)) {
+        if (!::SetFilePointerEx(handle_.get(), distance, nullptr, FILE_CURRENT)) {
             return WindowsError(filename_, ::GetLastError());
         }
         return Status::OK();
@@ -189,20 +180,17 @@ class WindowsRandomAccessFile : public RandomAccessFile {
 
     ~WindowsRandomAccessFile() override = default;
 
-    Status Read(uint64_t offset, size_t n, Slice* result,
-                char* scratch) const override {
+    Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
         DWORD bytes_read = 0;
         OVERLAPPED overlapped = {0};
 
         overlapped.OffsetHigh = static_cast<DWORD>(offset >> 32);
         overlapped.Offset = static_cast<DWORD>(offset);
-        if (!::ReadFile(handle_.get(), scratch, static_cast<DWORD>(n),
-                        &bytes_read, &overlapped)) {
+        if (!::ReadFile(handle_.get(), scratch, static_cast<DWORD>(n), &bytes_read, &overlapped)) {
             DWORD error_code = ::GetLastError();
             if (error_code != ERROR_HANDLE_EOF) {
                 *result = Slice(scratch, 0);
-                return Status::IOError(filename_,
-                                       GetWindowsErrorMessage(error_code));
+                return Status::IOError(filename_, GetWindowsErrorMessage(error_code));
             }
         }
 
@@ -218,8 +206,8 @@ class WindowsRandomAccessFile : public RandomAccessFile {
 class WindowsMmapReadableFile : public RandomAccessFile {
    public:
     // base[0,length-1] contains the mmapped contents of the file.
-    WindowsMmapReadableFile(std::string filename, char* mmap_base,
-                            size_t length, Limiter* mmap_limiter)
+    WindowsMmapReadableFile(std::string filename, char* mmap_base, size_t length,
+                            Limiter* mmap_limiter)
         : mmap_base_(mmap_base),
           length_(length),
           mmap_limiter_(mmap_limiter),
@@ -230,8 +218,7 @@ class WindowsMmapReadableFile : public RandomAccessFile {
         mmap_limiter_->Release();
     }
 
-    Status Read(uint64_t offset, size_t n, Slice* result,
-                char* scratch) const override {
+    Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
         if (offset + n > length_) {
             *result = Slice();
             return WindowsError(filename_, ERROR_INVALID_PARAMETER);
@@ -304,8 +291,7 @@ class WindowsWritableFile : public WritableFile {
         }
 
         if (!::FlushFileBuffers(handle_.get())) {
-            return Status::IOError(filename_,
-                                   GetWindowsErrorMessage(::GetLastError()));
+            return Status::IOError(filename_, GetWindowsErrorMessage(::GetLastError()));
         }
         return Status::OK();
     }
@@ -319,10 +305,8 @@ class WindowsWritableFile : public WritableFile {
 
     Status WriteUnbuffered(const char* data, size_t size) {
         DWORD bytes_written;
-        if (!::WriteFile(handle_.get(), data, static_cast<DWORD>(size),
-                         &bytes_written, nullptr)) {
-            return Status::IOError(filename_,
-                                   GetWindowsErrorMessage(::GetLastError()));
+        if (!::WriteFile(handle_.get(), data, static_cast<DWORD>(size), &bytes_written, nullptr)) {
+            return Status::IOError(filename_, GetWindowsErrorMessage(::GetLastError()));
         }
         return Status::OK();
     }
@@ -369,21 +353,18 @@ class WindowsEnv : public Env {
    public:
     WindowsEnv();
     ~WindowsEnv() override {
-        static const char msg[] =
-            "WindowsEnv singleton destroyed. Unsupported behavior!\n";
+        static const char msg[] = "WindowsEnv singleton destroyed. Unsupported behavior!\n";
         std::fwrite(msg, 1, sizeof(msg), stderr);
         std::abort();
     }
 
-    Status NewSequentialFile(const std::string& filename,
-                             SequentialFile** result) override {
+    Status NewSequentialFile(const std::string& filename, SequentialFile** result) override {
         *result = nullptr;
         DWORD desired_access = GENERIC_READ;
         DWORD share_mode = FILE_SHARE_READ;
         ScopedHandle handle =
             ::CreateFileA(filename.c_str(), desired_access, share_mode,
-                          /*lpSecurityAttributes=*/nullptr, OPEN_EXISTING,
-                          FILE_ATTRIBUTE_NORMAL,
+                          /*lpSecurityAttributes=*/nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
                           /*hTemplateFile=*/nullptr);
         if (!handle.is_valid()) {
             return WindowsError(filename, ::GetLastError());
@@ -393,15 +374,13 @@ class WindowsEnv : public Env {
         return Status::OK();
     }
 
-    Status NewRandomAccessFile(const std::string& filename,
-                               RandomAccessFile** result) override {
+    Status NewRandomAccessFile(const std::string& filename, RandomAccessFile** result) override {
         *result = nullptr;
         DWORD desired_access = GENERIC_READ;
         DWORD share_mode = FILE_SHARE_READ;
         ScopedHandle handle =
             ::CreateFileA(filename.c_str(), desired_access, share_mode,
-                          /*lpSecurityAttributes=*/nullptr, OPEN_EXISTING,
-                          FILE_ATTRIBUTE_READONLY,
+                          /*lpSecurityAttributes=*/nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_READONLY,
                           /*hTemplateFile=*/nullptr);
         if (!handle.is_valid()) {
             return WindowsError(filename, ::GetLastError());
@@ -418,21 +397,20 @@ class WindowsEnv : public Env {
             return WindowsError(filename, ::GetLastError());
         }
 
-        ScopedHandle mapping =
-            ::CreateFileMappingA(handle.get(),
-                                 /*security attributes=*/nullptr, PAGE_READONLY,
-                                 /*dwMaximumSizeHigh=*/0,
-                                 /*dwMaximumSizeLow=*/0,
-                                 /*lpName=*/nullptr);
+        ScopedHandle mapping = ::CreateFileMappingA(handle.get(),
+                                                    /*security attributes=*/nullptr, PAGE_READONLY,
+                                                    /*dwMaximumSizeHigh=*/0,
+                                                    /*dwMaximumSizeLow=*/0,
+                                                    /*lpName=*/nullptr);
         if (mapping.is_valid()) {
             void* mmap_base = ::MapViewOfFile(mapping.get(), FILE_MAP_READ,
                                               /*dwFileOffsetHigh=*/0,
                                               /*dwFileOffsetLow=*/0,
                                               /*dwNumberOfBytesToMap=*/0);
             if (mmap_base) {
-                *result = new WindowsMmapReadableFile(
-                    filename, reinterpret_cast<char*>(mmap_base),
-                    static_cast<size_t>(file_size.QuadPart), &mmap_limiter_);
+                *result = new WindowsMmapReadableFile(filename, reinterpret_cast<char*>(mmap_base),
+                                                      static_cast<size_t>(file_size.QuadPart),
+                                                      &mmap_limiter_);
                 return Status::OK();
             }
         }
@@ -440,14 +418,12 @@ class WindowsEnv : public Env {
         return WindowsError(filename, ::GetLastError());
     }
 
-    Status NewWritableFile(const std::string& filename,
-                           WritableFile** result) override {
+    Status NewWritableFile(const std::string& filename, WritableFile** result) override {
         DWORD desired_access = GENERIC_WRITE;
         DWORD share_mode = 0;  // Exclusive access.
         ScopedHandle handle =
             ::CreateFileA(filename.c_str(), desired_access, share_mode,
-                          /*lpSecurityAttributes=*/nullptr, CREATE_ALWAYS,
-                          FILE_ATTRIBUTE_NORMAL,
+                          /*lpSecurityAttributes=*/nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
                           /*hTemplateFile=*/nullptr);
         if (!handle.is_valid()) {
             *result = nullptr;
@@ -458,14 +434,12 @@ class WindowsEnv : public Env {
         return Status::OK();
     }
 
-    Status NewAppendableFile(const std::string& filename,
-                             WritableFile** result) override {
+    Status NewAppendableFile(const std::string& filename, WritableFile** result) override {
         DWORD desired_access = FILE_APPEND_DATA;
         DWORD share_mode = 0;  // Exclusive access.
         ScopedHandle handle =
             ::CreateFileA(filename.c_str(), desired_access, share_mode,
-                          /*lpSecurityAttributes=*/nullptr, OPEN_ALWAYS,
-                          FILE_ATTRIBUTE_NORMAL,
+                          /*lpSecurityAttributes=*/nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL,
                           /*hTemplateFile=*/nullptr);
         if (!handle.is_valid()) {
             *result = nullptr;
@@ -496,9 +470,8 @@ class WindowsEnv : public Env {
             char base_name[_MAX_FNAME];
             char ext[_MAX_EXT];
 
-            if (!_splitpath_s(find_data.cFileName, nullptr, 0, nullptr, 0,
-                              base_name, ARRAYSIZE(base_name), ext,
-                              ARRAYSIZE(ext))) {
+            if (!_splitpath_s(find_data.cFileName, nullptr, 0, nullptr, 0, base_name,
+                              ARRAYSIZE(base_name), ext, ARRAYSIZE(ext))) {
                 result->emplace_back(std::string(base_name) + ext);
             }
         } while (::FindNextFileA(dir_handle, &find_data));
@@ -533,8 +506,7 @@ class WindowsEnv : public Env {
 
     Status GetFileSize(const std::string& filename, uint64_t* size) override {
         WIN32_FILE_ATTRIBUTE_DATA file_attributes;
-        if (!::GetFileAttributesExA(filename.c_str(), GetFileExInfoStandard,
-                                    &file_attributes)) {
+        if (!::GetFileAttributesExA(filename.c_str(), GetFileExInfoStandard, &file_attributes)) {
             return WindowsError(filename, ::GetLastError());
         }
         ULARGE_INTEGER file_size;
@@ -557,8 +529,7 @@ class WindowsEnv : public Env {
         // we may not be able to change the ACLs. Ignore ACL errors then
         // (REPLACEFILE_IGNORE_MERGE_ERRORS).
         if (::ReplaceFileA(to.c_str(), from.c_str(),
-                           /*lpBackupFileName=*/nullptr,
-                           REPLACEFILE_IGNORE_MERGE_ERRORS,
+                           /*lpBackupFileName=*/nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS,
                            /*lpExclude=*/nullptr, /*lpReserved=*/nullptr)) {
             return Status::OK();
         }
@@ -566,8 +537,7 @@ class WindowsEnv : public Env {
         // In the case of FILE_ERROR_NOT_FOUND from ReplaceFile, it is likely
         // that |to| does not exist. In this case, the more relevant error comes
         // from the call to MoveFile.
-        if (replace_error == ERROR_FILE_NOT_FOUND ||
-            replace_error == ERROR_PATH_NOT_FOUND) {
+        if (replace_error == ERROR_FILE_NOT_FOUND || replace_error == ERROR_PATH_NOT_FOUND) {
             return WindowsError(from, move_error);
         } else {
             return WindowsError(from, replace_error);
@@ -579,8 +549,7 @@ class WindowsEnv : public Env {
         Status result;
         ScopedHandle handle = ::CreateFileA(
             filename.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ,
-            /*lpSecurityAttributes=*/nullptr, OPEN_ALWAYS,
-            FILE_ATTRIBUTE_NORMAL, nullptr);
+            /*lpSecurityAttributes=*/nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (!handle.is_valid()) {
             result = WindowsError(filename, ::GetLastError());
         } else if (!LockOrUnlock(handle.get(), true)) {
@@ -592,11 +561,9 @@ class WindowsEnv : public Env {
     }
 
     Status UnlockFile(FileLock* lock) override {
-        WindowsFileLock* windows_file_lock =
-            reinterpret_cast<WindowsFileLock*>(lock);
+        WindowsFileLock* windows_file_lock = reinterpret_cast<WindowsFileLock*>(lock);
         if (!LockOrUnlock(windows_file_lock->handle().get(), false)) {
-            return WindowsError("unlock " + windows_file_lock->filename(),
-                                ::GetLastError());
+            return WindowsError("unlock " + windows_file_lock->filename(), ::GetLastError());
         }
         delete windows_file_lock;
         return Status::OK();
@@ -605,8 +572,7 @@ class WindowsEnv : public Env {
     void Schedule(void (*background_work_function)(void* background_work_arg),
                   void* background_work_arg) override;
 
-    void StartThread(void (*thread_main)(void* thread_main_arg),
-                     void* thread_main_arg) override {
+    void StartThread(void (*thread_main)(void* thread_main_arg), void* thread_main_arg) override {
         std::thread new_thread(thread_main, thread_main_arg);
         new_thread.detach();
     }
@@ -650,8 +616,7 @@ class WindowsEnv : public Env {
         ::GetSystemTimeAsFileTime(&ft);
         // Each tick represents a 100-nanosecond intervals since January 1, 1601
         // (UTC).
-        uint64_t num_ticks =
-            (static_cast<uint64_t>(ft.dwHighDateTime) << 32) + ft.dwLowDateTime;
+        uint64_t num_ticks = (static_cast<uint64_t>(ft.dwHighDateTime) << 32) + ft.dwLowDateTime;
         return num_ticks / 10;
     }
 
@@ -662,9 +627,7 @@ class WindowsEnv : public Env {
    private:
     void BackgroundThreadMain();
 
-    static void BackgroundThreadEntryPoint(WindowsEnv* env) {
-        env->BackgroundThreadMain();
-    }
+    static void BackgroundThreadEntryPoint(WindowsEnv* env) { env->BackgroundThreadMain(); }
 
     // Stores the work item data in a Schedule() call.
     //
@@ -684,8 +647,7 @@ class WindowsEnv : public Env {
     port::CondVar background_work_cv_ GUARDED_BY(background_work_mutex_);
     bool started_background_thread_ GUARDED_BY(background_work_mutex_);
 
-    std::queue<BackgroundWorkItem> background_work_queue_
-        GUARDED_BY(background_work_mutex_);
+    std::queue<BackgroundWorkItem> background_work_queue_ GUARDED_BY(background_work_mutex_);
 
     Limiter mmap_limiter_;  // Thread-safe.
 };
@@ -698,16 +660,14 @@ WindowsEnv::WindowsEnv()
       started_background_thread_(false),
       mmap_limiter_(MaxMmaps()) {}
 
-void WindowsEnv::Schedule(
-    void (*background_work_function)(void* background_work_arg),
-    void* background_work_arg) {
+void WindowsEnv::Schedule(void (*background_work_function)(void* background_work_arg),
+                          void* background_work_arg) {
     background_work_mutex_.Lock();
 
     // Start the background thread, if we haven't done so already.
     if (!started_background_thread_) {
         started_background_thread_ = true;
-        std::thread background_thread(WindowsEnv::BackgroundThreadEntryPoint,
-                                      this);
+        std::thread background_thread(WindowsEnv::BackgroundThreadEntryPoint, this);
         background_thread.detach();
     }
 
@@ -716,8 +676,7 @@ void WindowsEnv::Schedule(
         background_work_cv_.Signal();
     }
 
-    background_work_queue_.emplace(background_work_function,
-                                   background_work_arg);
+    background_work_queue_.emplace(background_work_function, background_work_arg);
     background_work_mutex_.Unlock();
 }
 
@@ -759,8 +718,7 @@ class SingletonEnv {
 #if !defined(NDEBUG)
         env_initialized_.store(true, std::memory_order::memory_order_relaxed);
 #endif  // !defined(NDEBUG)
-        static_assert(sizeof(env_storage_) >= sizeof(EnvType),
-                      "env_storage_ will not fit the Env");
+        static_assert(sizeof(env_storage_) >= sizeof(EnvType), "env_storage_ will not fit the Env");
         static_assert(alignof(decltype(env_storage_)) >= alignof(EnvType),
                       "env_storage_ does not meet the Env's alignment needs");
         new (&env_storage_) EnvType();
@@ -779,8 +737,7 @@ class SingletonEnv {
     }
 
    private:
-    typename std::aligned_storage<sizeof(EnvType), alignof(EnvType)>::type
-        env_storage_;
+    typename std::aligned_storage<sizeof(EnvType), alignof(EnvType)>::type env_storage_;
 #if !defined(NDEBUG)
     static std::atomic<bool> env_initialized_;
 #endif  // !defined(NDEBUG)

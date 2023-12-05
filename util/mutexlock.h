@@ -23,9 +23,7 @@ namespace leveldb {
 /* MutexLock 可以认为是 std::lock_guard 的简单实现 */
 class SCOPED_LOCKABLE MutexLock {
    public:
-    explicit MutexLock(port::Mutex* mu) EXCLUSIVE_LOCK_FUNCTION(mu) : mu_(mu) {
-        this->mu_->Lock();
-    }
+    explicit MutexLock(port::Mutex* mu) EXCLUSIVE_LOCK_FUNCTION(mu) : mu_(mu) { this->mu_->Lock(); }
     ~MutexLock() UNLOCK_FUNCTION() { this->mu_->Unlock(); }
 
     MutexLock(const MutexLock&) = delete;

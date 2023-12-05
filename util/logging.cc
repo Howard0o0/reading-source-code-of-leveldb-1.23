@@ -16,8 +16,7 @@ namespace leveldb {
 
 void AppendNumberTo(std::string* str, uint64_t num) {
     char buf[30];
-    std::snprintf(buf, sizeof(buf), "%llu",
-                  static_cast<unsigned long long>(num));
+    std::snprintf(buf, sizeof(buf), "%llu", static_cast<unsigned long long>(num));
     str->append(buf);
 }
 
@@ -28,8 +27,7 @@ void AppendEscapedStringTo(std::string* str, const Slice& value) {
             str->push_back(c);
         } else {
             char buf[10];
-            std::snprintf(buf, sizeof(buf), "\\x%02x",
-                          static_cast<unsigned int>(c) & 0xff);
+            std::snprintf(buf, sizeof(buf), "\\x%02x", static_cast<unsigned int>(c) & 0xff);
             str->append(buf);
         }
     }
@@ -50,8 +48,7 @@ std::string EscapeString(const Slice& value) {
 bool ConsumeDecimalNumber(Slice* in, uint64_t* val) {
     // Constants that will be optimized away.
     constexpr const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
-    constexpr const char kLastDigitOfMaxUint64 =
-        '0' + static_cast<char>(kMaxUint64 % 10);
+    constexpr const char kLastDigitOfMaxUint64 = '0' + static_cast<char>(kMaxUint64 % 10);
 
     uint64_t value = 0;
 
@@ -66,8 +63,7 @@ bool ConsumeDecimalNumber(Slice* in, uint64_t* val) {
 
         // Overflow check.
         // kMaxUint64 / 10 is also constant and will be optimized away.
-        if (value > kMaxUint64 / 10 ||
-            (value == kMaxUint64 / 10 && ch > kLastDigitOfMaxUint64)) {
+        if (value > kMaxUint64 / 10 || (value == kMaxUint64 / 10 && ch > kLastDigitOfMaxUint64)) {
             return false;
         }
 

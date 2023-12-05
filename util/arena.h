@@ -34,9 +34,7 @@ class Arena {
     // Returns an estimate of the total memory usage of data allocated
     // by the arena.
     // 返回至今为止分配的内存总量
-    size_t MemoryUsage() const {
-        return memory_usage_.load(std::memory_order_relaxed);
-    }
+    size_t MemoryUsage() const { return memory_usage_.load(std::memory_order_relaxed); }
 
    private:
     char* AllocateFallback(size_t bytes);

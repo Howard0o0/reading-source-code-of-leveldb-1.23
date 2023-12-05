@@ -72,7 +72,6 @@ inline void EncodeFixed32(char* dst, uint32_t value) {
      * 对目标对象的内存进行重新解释。此时我们可以将一个 long long
      * 对象转换成一个指针类型，或者是将一个 char * 转换成一个 int *。
      * */
-    
 
     uint8_t* const buffer = reinterpret_cast<uint8_t*>(dst);
 
@@ -112,10 +111,8 @@ inline uint32_t DecodeFixed32(const char* ptr) {
     const uint8_t* const buffer = reinterpret_cast<const uint8_t*>(ptr);
 
     // Recent clang and gcc optimize this to a single mov / ldr instruction.
-    return (static_cast<uint32_t>(buffer[0])) |
-           (static_cast<uint32_t>(buffer[1]) << 8) |
-           (static_cast<uint32_t>(buffer[2]) << 16) |
-           (static_cast<uint32_t>(buffer[3]) << 24);
+    return (static_cast<uint32_t>(buffer[0])) | (static_cast<uint32_t>(buffer[1]) << 8) |
+           (static_cast<uint32_t>(buffer[2]) << 16) | (static_cast<uint32_t>(buffer[3]) << 24);
 }
 
 /* 将通过 EncodeFixed64() 函数编码的 char * 转换成 uint64 */
@@ -123,21 +120,15 @@ inline uint64_t DecodeFixed64(const char* ptr) {
     const uint8_t* const buffer = reinterpret_cast<const uint8_t*>(ptr);
 
     // Recent clang and gcc optimize this to a single mov / ldr instruction.
-    return (static_cast<uint64_t>(buffer[0])) |
-           (static_cast<uint64_t>(buffer[1]) << 8) |
-           (static_cast<uint64_t>(buffer[2]) << 16) |
-           (static_cast<uint64_t>(buffer[3]) << 24) |
-           (static_cast<uint64_t>(buffer[4]) << 32) |
-           (static_cast<uint64_t>(buffer[5]) << 40) |
-           (static_cast<uint64_t>(buffer[6]) << 48) |
-           (static_cast<uint64_t>(buffer[7]) << 56);
+    return (static_cast<uint64_t>(buffer[0])) | (static_cast<uint64_t>(buffer[1]) << 8) |
+           (static_cast<uint64_t>(buffer[2]) << 16) | (static_cast<uint64_t>(buffer[3]) << 24) |
+           (static_cast<uint64_t>(buffer[4]) << 32) | (static_cast<uint64_t>(buffer[5]) << 40) |
+           (static_cast<uint64_t>(buffer[6]) << 48) | (static_cast<uint64_t>(buffer[7]) << 56);
 }
 
 // Internal routine for use by fallback path of GetVarint32Ptr
-const char* GetVarint32PtrFallback(const char* p, const char* limit,
-                                   uint32_t* value);
-inline const char* GetVarint32Ptr(const char* p, const char* limit,
-                                  uint32_t* value) {
+const char* GetVarint32PtrFallback(const char* p, const char* limit, uint32_t* value);
+inline const char* GetVarint32Ptr(const char* p, const char* limit, uint32_t* value) {
     if (p < limit) {
         uint32_t result = *(reinterpret_cast<const uint8_t*>(p));
         if ((result & 128) == 0) {

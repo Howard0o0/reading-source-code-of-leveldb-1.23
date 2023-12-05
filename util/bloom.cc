@@ -10,9 +10,7 @@
 namespace leveldb {
 
 namespace {
-static uint32_t BloomHash(const Slice& key) {
-    return Hash(key.data(), key.size(), 0xbc9f1d34);
-}
+static uint32_t BloomHash(const Slice& key) { return Hash(key.data(), key.size(), 0xbc9f1d34); }
 
 /* Bloom Filter */
 class BloomFilterPolicy : public FilterPolicy {
@@ -26,8 +24,7 @@ class BloomFilterPolicy : public FilterPolicy {
 
     const char* Name() const override { return "leveldb.BuiltinBloomFilter2"; }
 
-    void CreateFilter(const Slice* keys, int n,
-                      std::string* dst) const override {
+    void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
         // Compute bloom filter size (in both bits and bytes)
         size_t bits = n * bits_per_key_;
 
@@ -40,15 +37,13 @@ class BloomFilterPolicy : public FilterPolicy {
 
         const size_t init_size = dst->size();
         dst->resize(init_size + bytes, 0);
-        dst->push_back(
-            static_cast<char>(k_));  // Remember # of probes in filter
+        dst->push_back(static_cast<char>(k_));  // Remember # of probes in filter
         char* array = &(*dst)[init_size];
         for (int i = 0; i < n; i++) {
             // Use double-hashing to generate a sequence of hash values.
             // See analysis in [Kirsch,Mitzenmacher 2006].
             uint32_t h = BloomHash(keys[i]);
-            const uint32_t delta =
-                (h >> 17) | (h << 15);  // Rotate right 17 bits
+            const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
             for (size_t j = 0; j < k_; j++) {
                 const uint32_t bitpos = h % bits;
                 array[bitpos / 8] |= (1 << (bitpos % 8));
@@ -57,8 +52,7 @@ class BloomFilterPolicy : public FilterPolicy {
         }
     }
 
-    bool KeyMayMatch(const Slice& key,
-                     const Slice& bloom_filter) const override {
+    bool KeyMayMatch(const Slice& key, const Slice& bloom_filter) const override {
         const size_t len = bloom_filter.size();
         if (len < 2) return false;
 

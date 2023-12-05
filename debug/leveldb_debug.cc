@@ -28,8 +28,8 @@ std::string decimalTo62(long long n) {
     return result;
 }
 
-void putData(leveldb::DB* db, leveldb::WriteOptions* writeOptions, int keyCount,
-             int init, int steps) {
+void putData(leveldb::DB* db, leveldb::WriteOptions* writeOptions, int keyCount, int init,
+             int steps) {
     int decimal = init;
     while (keyCount > 0) {
         std::string key = decimalTo62(decimal);
@@ -47,8 +47,7 @@ int main() {
     options.create_if_missing = true;
     options.filter_policy = leveldb::NewBloomFilterPolicy(10);
 
-    leveldb::Status status =
-        leveldb::DB::Open(options, "/tmp/leveldb", &db);
+    leveldb::Status status = leveldb::DB::Open(options, "/tmp/leveldb", &db);
 
     leveldb::WriteOptions writeOptions;
     writeOptions.sync = true;
@@ -59,8 +58,7 @@ int main() {
     std::vector<std::thread> threads(numThreads);
 
     for (int i = 0; i < numThreads; i++) {
-        threads[i] = std::thread(putData, db, &writeOptions, total / numThreads,
-                                 i, numThreads);
+        threads[i] = std::thread(putData, db, &writeOptions, total / numThreads, i, numThreads);
     }
 
     for (auto& t : threads) {

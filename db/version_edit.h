@@ -18,7 +18,7 @@ class VersionSet;
 struct FileMetaData {
     FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0) {}
 
-    int refs; /* 引用计数，表示当前 SSTable 被多少个 Version 所引用 */
+    int refs;             /* 引用计数，表示当前 SSTable 被多少个 Version 所引用 */
     int allowed_seeks;    /* 当前 SSTable 允许被 Seek 的次数 */
     uint64_t number;      /* SSTable 文件记录编号 */
     uint64_t file_size;   /* SSTable 文件大小 */
@@ -65,8 +65,8 @@ class VersionEdit {
     // Add the specified file at the specified number.
     // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
     // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
-    void AddFile(int level, uint64_t file, uint64_t file_size,
-                 const InternalKey& smallest, const InternalKey& largest) {
+    void AddFile(int level, uint64_t file, uint64_t file_size, const InternalKey& smallest,
+                 const InternalKey& largest) {
         FileMetaData f;
         f.number = file;
         f.file_size = file_size;

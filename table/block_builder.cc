@@ -91,8 +91,7 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
          * last_key_ 有多少重合度即可 */
         const size_t min_length = std::min(last_key_piece.size(), key.size());
         /* 统计前缀长度 */
-        while ((shared < min_length) &&
-               (last_key_piece[shared] == key[shared])) {
+        while ((shared < min_length) && (last_key_piece[shared] == key[shared])) {
             shared++;
         }
     } else {

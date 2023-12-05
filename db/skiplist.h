@@ -97,7 +97,7 @@ class SkipList {
 
         // Advances to the next position.
         // REQUIRES: Valid()
-        // 将迭代器指向下一个节点, 
+        // 将迭代器指向下一个节点,
         // 等效于c++标准库里的`it++`
         void Next();
 
@@ -145,9 +145,7 @@ class SkipList {
     // Write a UT to test the probability distribution.
     int RandomHeight();
 
-    bool Equal(const Key& a, const Key& b) const {
-        return (compare_(a, b) == 0);
-    }
+    bool Equal(const Key& a, const Key& b) const { return (compare_(a, b) == 0); }
 
     // Return true if key is greater than the data stored in "n"
     bool KeyIsAfterNode(const Key& key, Node* n) const;
@@ -265,14 +263,14 @@ struct SkipList<Key, Comparator>::Node {
 };
 
 template <typename Key, class Comparator>
-typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(
-    const Key& key, int height) {
+typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(const Key& key,
+                                                                             int height) {
     // 内存分配时只需要再分配 level - 1 层，因为第 0 层已经预先分配完毕了。
     // 一共需要分配 height 个next_指针。
     // sizeof(Node) 分配的是struct Node的大小，其中包含了1个next_指针
     // sizeof(std::atomic<Node*>) * (height - 1)) 分配 height-1 个next_指针
-    char* const node_memory = arena_->AllocateAligned(
-        sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
+    char* const node_memory =
+        arena_->AllocateAligned(sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
     // 这里是 placement new 的写法，在现有的内存上进行 new object
     return new (node_memory) Node(key);
 }
@@ -351,7 +349,7 @@ int SkipList<Key, Comparator>::RandomHeight() {
         // 所以LevelDB的SkipList里, 概率因子是1/4.
         height++;
     }
-    
+
     // 生成的height必须在[1, kMaxHeight]之间
     assert(height > 0);
     assert(height <= kMaxHeight);
@@ -386,16 +384,14 @@ bool SkipList<Key, Comparator>::KeyIsAfterNode(const Key& key, Node* n) const {
  * 便于代码复用.
  */
 template <typename Key, class Comparator>
-typename SkipList<Key, Comparator>::Node*
-SkipList<Key, Comparator>::FindGreaterOrEqual(const Key& key,
-                                              Node** prev) const {
+typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindGreaterOrEqual(
+    const Key& key, Node** prev) const {
     // x为查找目标节点
     Node* x = head_;
 
     // index是从0开始的，所以需要减去1
     int level = GetMaxHeight() - 1;
     while (true) {
-
         // 获取当前level层的下一个节点
         Node* next = x->Next(level);
 
@@ -428,8 +424,8 @@ SkipList<Key, Comparator>::FindGreaterOrEqual(const Key& key,
 
 /* 寻找最后一个小于等于 key 的节点 */
 template <typename Key, class Comparator>
-typename SkipList<Key, Comparator>::Node*
-SkipList<Key, Comparator>::FindLessThan(const Key& key) const {
+typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLessThan(
+    const Key& key) const {
     Node* x = head_;
     int level = GetMaxHeight() - 1;
     while (true) {
@@ -452,8 +448,7 @@ SkipList<Key, Comparator>::FindLessThan(const Key& key) const {
  * next 指针 一路往前寻找，因为这样的话其时间复杂度将为
  * O(n)。而从最高层往下找的话，其时间复杂度为 O(logn) */
 template <typename Key, class Comparator>
-typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast()
-    const {
+typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast() const {
     Node* x = head_;
     // 从最高层找起, level的取值是[0, Height - 1].
     int level = GetMaxHeight() - 1;
@@ -502,7 +497,7 @@ void SkipList<Key, Comparator>::Insert(const Key& key) {
     // 如果发现key已经存在于SkipList中了, 那是有问题的.
     // 因为key = sequence + key + value.
     // 就算key相同, sequence是全局递增的, 不会重复
-    // 使用assert是为了在debug模式下与ut中测试, 
+    // 使用assert是为了在debug模式下与ut中测试,
     // 但是在release模式中, 会被编译器优化掉, 不生效,
     // 同时也增加了可读性.
     assert(x == nullptr || !Equal(key, x->key));
@@ -512,7 +507,7 @@ void SkipList<Key, Comparator>::Insert(const Key& key) {
 
     // 如果新节点的层高比SkipList的当前层高还要大, 那么就需要做些更新
     if (height > GetMaxHeight()) {
-        // 假设SkipList的当前层高是4, 新节点的层高是6, 
+        // 假设SkipList的当前层高是4, 新节点的层高是6,
         // 那么第5层和第6层的前驱节点都是head(DummyHead)
         for (int i = GetMaxHeight(); i < height; i++) {
             prev[i] = head_;
