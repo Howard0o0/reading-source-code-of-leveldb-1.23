@@ -59,7 +59,9 @@ class LEVELDB_EXPORT TableBuilder {
     // the same data block.  Most clients should not need to use this method.
     // REQUIRES: Finish(), Abandon() have not been called
     /* 结束当前 Block 的构建 */
-    // Flush()方法用于将缓冲区中的键值对立即写入到文件中。这个方法主要用于确保两个相邻的条目永远不会在同一个数据块中。大多数客户端不需要使用这个方法。调用Flush()方法后，TableBuilder仍然可以继续添加新的键值对。
+    // Flush()方法用于将缓冲区中的键值对立即写入到文件中。
+    // 这个方法主要用于确保两个相邻的条目永远不会在同一个数据块中。
+    // 大多数情况不需要使用这个方法。调用Flush()方法后，TableBuilder仍然可以继续添加新的键值对。
     void Flush();
 
     // Return non-ok iff some error has been detected.
@@ -69,6 +71,9 @@ class LEVELDB_EXPORT TableBuilder {
     // constructor after this function returns.
     // REQUIRES: Finish(), Abandon() have not been called
     /* 结束 Table 的构建 */
+    // Finish()方法用于完成SSTable的构建。
+    // 调用这个方法后，TableBuilder将停止使用传递给构造函数的文件句柄，并将所有缓冲区中的键值对以及元数据写入到文件中。
+    // 一旦调用了Finish()方法，就不能再向TableBuilder中添加新的键值对，也不能再次调用Finish()方法。
     Status Finish();
 
     // Indicate that the contents of this builder should be abandoned.  Stops
@@ -77,6 +82,7 @@ class LEVELDB_EXPORT TableBuilder {
     // before destroying this builder.
     // REQUIRES: Finish(), Abandon() have not been called
     /* 放弃 Table 的构建 */
+    // 放弃SSTable的构建。在调用此方法后，之前添加到TableBuilder中的所有键值对都将被丢弃。
     void Abandon();
 
     // Number of calls to Add() so far.
@@ -94,7 +100,6 @@ class LEVELDB_EXPORT TableBuilder {
     /* 将压缩后的数据写入文件中 */
     void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle);
 
-    /* Rep 的作用就是隐藏具体实现 */
     struct Rep;
     Rep* rep_;
 };

@@ -30,13 +30,12 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
 
     // 生成SST的文件名
     // 在LevelDB中，SSTable的文件名的格式为/dbpath/number.sst，其中：
-    // 
+    //
     //      - /dbpath/是数据库的路径，对应于dbname参数。
     //      - number是SSTable的文件编号，对应于meta->number参数。
     //      - .sst是文件的扩展名，表示这是一个SSTable文件。
     std::string fname = TableFileName(dbname, meta->number);
     if (iter->Valid()) {
-
         // 创建SST文件
         WritableFile* file;
         s = env->NewWritableFile(fname, &file);
@@ -51,7 +50,6 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
         // MemTable中的kv是按照升序的，
         // 所以第一个key就是最小的key，最后一个key就是最大的key
         meta->smallest.DecodeFrom(iter->key());
-
 
         // 通过TableBuilder对象将
         // 所有kv写入到SST文件中
