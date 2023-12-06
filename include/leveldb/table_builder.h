@@ -59,6 +59,7 @@ class LEVELDB_EXPORT TableBuilder {
     // the same data block.  Most clients should not need to use this method.
     // REQUIRES: Finish(), Abandon() have not been called
     /* 结束当前 Block 的构建 */
+    // Flush()方法用于将缓冲区中的键值对立即写入到文件中。这个方法主要用于确保两个相邻的条目永远不会在同一个数据块中。大多数客户端不需要使用这个方法。调用Flush()方法后，TableBuilder仍然可以继续添加新的键值对。
     void Flush();
 
     // Return non-ok iff some error has been detected.

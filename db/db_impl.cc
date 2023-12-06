@@ -492,7 +492,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log, bool* save_man
 Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base) {
     mutex_.AssertHeld();
     // 开始计时SST的构建时间，
-    // 会记录到Debug Log里。
+    // 会记录到stats里。
     const uint64_t start_micros = env_->NowMicros();
 
     // 创建一个FileMetaData对象，用于记录SST的元数据信息。
@@ -543,16 +543,17 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
             level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
         }
         /* 新增了一个 SSTable，因此需要更新 VersionSet::new_files_ 字段 */
+        // 新增了一个SST，把metadata记录到VersionEdit中。
         edit->AddFile(level, meta.number, meta.file_size, meta.smallest, meta.largest);
     }
 
-    /* 3. 记录元数据信息 */
+    // 我们可以从leveldb的log或者api接口里获取stats。
     CompactionStats stats;
 
-    /* 记录 Build Table 持续时间与 Table 大小 */
+    // 将Build SST的时间开销与SST大小记录到stats里
     stats.micros = env_->NowMicros() - start_micros;
     stats.bytes_written = meta.file_size;
-    /* 记录 New SSTable 最终被推到哪一个 level */
+    // 记录New SST最终被推到哪个level
     stats_[level].Add(stats);
     return s;
 }

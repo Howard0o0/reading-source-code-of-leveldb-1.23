@@ -318,11 +318,233 @@ void DBImpl::CompactMemTable() {
 
 简单概括一下，`DBImpl::CompactMemTable`做了3件事，分别是：
 
-- 将`MemTable`落盘成`SSTable`文件
+- 将`MemTable`落盘成`SST`文件
 - 构建新的`Version`，包含新`SSTable`文件的`MetaData`等信息
 - 清理不再需要的文件
 
 现在我们逐一分析这3部分的实现。
 
-### 将`MemTable`落盘成`SSTable`文件
+### 将`MemTable`落盘成`SST`文件
 
+简单概括下`DBImpl::WriteLevel0Table`：
+
+- 生成一个新的`SST`文件: `BuildTable(dbname_, env_, options_, table_cache_, iter, &meta)`
+- 挑选出一个合适的`level-i`，用于放置新的`SST`文件: `PickLevelForMemTableOutput(min_user_key, max_user_key);`
+- 将新的`SST`文件的`MetaData`记录到`VersionEdit`中: `edit->AddFile(level, meta.number, meta.file_size, meta.smallest, meta.largest)`
+    - `SST`所在的`level`
+    - `SST`的编号
+    - `SST`的大小
+    - `SST`的最小`Key`和最大`Key`
+
+```c++
+Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base) {
+    mutex_.AssertHeld();
+    // 开始计时SST的构建时间，
+    // 会记录到stats里。
+    const uint64_t start_micros = env_->NowMicros();
+
+    // 创建一个FileMetaData对象，用于记录SST的元数据信息。
+    // 比如SST的编号、大小、最小Key、最大Key等。
+    FileMetaData meta;
+    // NewFileNumber()的实现很简单，就是一个自增的计数器。
+    meta.number = versions_->NewFileNumber();
+
+    // 把新SST的编号记录到pending_outputs_中，
+    // 是为了告诉其他线程，这个SST正在被构建中，
+    // 不要把它误删除了。
+    // 比如手动Compact的过程中会检查pending_outputs_，
+    // 如果待压缩的目标SST文件存在于pending_outputs_中，
+    // 就终止Compact。
+    pending_outputs_.insert(meta.number);
+
+    // 创建一个MemTable的Iterator，
+    // 用于读取MemTable中的所有KV数据。
+    Iterator* iter = mem->NewIterator();
+    Log(options_.info_log, "Level-0 table #%llu: started", (unsigned long long)meta.number);
+
+    Status s;
+    {
+        mutex_.Unlock();
+        // 遍历 MemTable 中的所有 KV 数据，将其写入 SSTable 文件中
+        s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
+        mutex_.Lock();
+    }
+
+    Log(options_.info_log, "Level-0 table #%llu: %lld bytes %s", (unsigned long long)meta.number,
+        (unsigned long long)meta.file_size, s.ToString().c_str());
+    delete iter;
+
+    // SST已经构建好了，从pending_outputs_中移除。
+    pending_outputs_.erase(meta.number);
+
+    // Note that if file_size is zero, the file has been deleted and
+    // should not be added to the manifest.
+    int level = 0;
+    // s.ok()但是meta.file_size为0的情况很罕见，但存在。
+    // 比如用户传入了特定的过滤逻辑，把MemTable的所有kv都过滤掉了，
+    // 此时BuildTable成功，但是SST的内容为空。
+    if (s.ok() && meta.file_size > 0) {
+        const Slice min_user_key = meta.smallest.user_key();
+        const Slice max_user_key = meta.largest.user_key();
+        if (base != nullptr) {
+            // 挑选出一个合适的 level，用于放置新的 SSTable
+            level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
+        }
+        /* 新增了一个 SSTable，因此需要更新 VersionSet::new_files_ 字段 */
+        // 新增了一个SST，把metadata记录到VersionEdit中。
+        edit->AddFile(level, meta.number, meta.file_size, meta.smallest, meta.largest);
+    }
+
+    // 我们可以从leveldb的log或者api接口里获取stats。
+    CompactionStats stats;
+
+    // 将Build SST的时间开销与SST大小记录到stats里
+    stats.micros = env_->NowMicros() - start_micros;
+    stats.bytes_written = meta.file_size;
+    // 记录New SST最终被推到哪个level
+    stats_[level].Add(stats);
+    return s;
+}
+```
+
+#### 将`MemTable`生成一个新的`SST`文件:
+
+现在我们来看下`BuildTable`的实现细节。
+
+简单概括一下：
+
+1. 根据`meta->number`创建一个`SST`文件。
+2. 创建一个`TableBuilder`对象，通过它将`MemTable`里所有的kv写入到`SST`文件里。
+3. 检查是否有错误。
+4. 如果有错误或者生成的`SST`文件为空，删除该`SST`。
+
+```c++
+Status BuildTable(const std::string& dbname, Env* env, const Options& options,
+                  TableCache* table_cache, Iterator* iter, FileMetaData* meta) {
+    Status s;
+    // 初始化SST的大小为0
+    meta->file_size = 0;
+
+    // 将MemTable的迭代器指向第一个元素
+    iter->SeekToFirst();
+
+    // 生成SST的文件名
+    // 在LevelDB中，SSTable的文件名的格式为/dbpath/number.sst，其中：
+    // 
+    //      - /dbpath/是数据库的路径，对应于dbname参数。
+    //      - number是SSTable的文件编号，对应于meta->number参数。
+    //      - .sst是文件的扩展名，表示这是一个SSTable文件。
+    std::string fname = TableFileName(dbname, meta->number);
+    if (iter->Valid()) {
+
+        // 创建SST文件
+        WritableFile* file;
+        s = env->NewWritableFile(fname, &file);
+        if (!s.ok()) {
+            return s;
+        }
+
+        // 创建一个TableBuilder对象，
+        // 用于将MemTable中的数据写入到SST文件中
+        TableBuilder* builder = new TableBuilder(options, file);
+
+        // MemTable中的kv是按照升序的，
+        // 所以第一个key就是最小的key，最后一个key就是最大的key
+        meta->smallest.DecodeFrom(iter->key());
+
+
+        // 通过TableBuilder对象将
+        // 所有kv写入到SST文件中
+        Slice key;
+        for (; iter->Valid(); iter->Next()) {
+            key = iter->key();
+            builder->Add(key, iter->value());
+        }
+
+        // 最后一个key就是最大的key
+        if (!key.empty()) {
+            meta->largest.DecodeFrom(key);
+        }
+
+        // Finish and check for builder errors
+        // 完成收尾工作，并在metadata里记录SST的大小
+        s = builder->Finish();
+        if (s.ok()) {
+            meta->file_size = builder->FileSize();
+            assert(meta->file_size > 0);
+        }
+        delete builder;
+
+        // Finish and check for file errors
+        // 把buffer里剩余的数据写入到文件中
+        if (s.ok()) {
+            s = file->Sync();
+        }
+        // 关闭文件，释放文件描述符
+        if (s.ok()) {
+            s = file->Close();
+        }
+        delete file;
+        file = nullptr;
+
+        if (s.ok()) {
+            // Verify that the table is usable
+            // 创建一个SST的迭代器，用于检查生成的SST是否可用
+            Iterator* it = table_cache->NewIterator(ReadOptions(), meta->number, meta->file_size);
+            s = it->status();
+            delete it;
+        }
+    }
+
+    // Check for input iterator errors
+    // 检查MemTabel的迭代器是否有错误，
+    // 如果有的话，说明MemTable可能会有
+    // 部分数据没有刷到SST里。
+    if (!iter->status().ok()) {
+        s = iter->status();
+    }
+
+    // 如果SST和MemTable都没有问题，
+    // 并且该SST不为空，就保留这个SST。
+    // 否则的话，删除该SST。
+    // 这里可能会有些有疑惑，怎么会有s.ok()但是
+    // SST为空的情况呢？
+    // `builder->Add(key, iter->value()`里
+    // 会检查用户是否设置了filter，如果有filter就
+    // 按照用户设置的filter来过滤掉一些kv，这样
+    // 就会有MemTable中的所有kv都被过滤掉的情况。
+    if (s.ok() && meta->file_size > 0) {
+        // Keep it
+    } else {
+        env->RemoveFile(fname);
+    }
+    return s;
+}
+```
+
+由于文件写入在不同平台(比如posix && win)需要使用不同的接口，所以LevelDB将文件写入相关的操作抽象出了一个接口`WritableFile`，如下：
+
+```c++
+class LEVELDB_EXPORT WritableFile {
+   public:
+    WritableFile() = default;
+
+    WritableFile(const WritableFile&) = delete;
+    WritableFile& operator=(const WritableFile&) = delete;
+
+    virtual ~WritableFile();
+
+    virtual Status Append(const Slice& data) = 0;
+    virtual Status Close() = 0;
+    virtual Status Flush() = 0;
+    virtual Status Sync() = 0;
+};
+```
+
+对于`posix`上`WritableFile`的实现，请移步阅读[TODO](TODO)。
+
+`TableBuilder`生成`SST`的篇幅较多，请移步阅读[TODO](TODO)。
+
+#### 挑选合适的level-i用于放置新的`SST`
+
+#### 将新`SST`的`MetaData`记录到`VersionEdit`中

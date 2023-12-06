@@ -5,6 +5,7 @@ BasedOnStyle: Google
 DerivePointerAlignment: false
 IndentWidth: 4
 ColumnLimit: 100
+CommentPragmas: '^ IWYU pragma:|^.{0,80}$'
 
 # Public headers are in a different location in the internal Google repository.
 # Order them so that when imported to the authoritative repository they will be
