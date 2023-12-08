@@ -82,13 +82,31 @@ builder->Finish();
 delete builder;
 ```
 
+## SST的格式
+
+TODO
+
 ## `TableBuilder`的构造函数
 
 ```c++
 TableBuilder::TableBuilder(const Options& options, WritableFile* file)
     : rep_(new Rep(options, file)) {
+    // 如果options中指定了filter polacy配置选项，
+    // rep_就会按照filter polac初始化一个新的filter block,
+    // 此时rep_->filter_block就不为nullptr了。
     if (rep_->filter_block != nullptr) {
+        // 初始化一个新的filter block.
         rep_->filter_block->StartBlock(0);
     }
 }
 ```
+
+构造`TableBuilder`的时候，会把LevelDB的`Option`与`SST`的文件句柄`file`传入到`TableBuilder`对象中。
+
+`Option`里可以配置`filter policy`，比如`BloomFilterPolicy`，给每个`SST`都配置一个`Bloom Filter`，用于加速`key`的查找。不了解`Bloom Filter`的同学可以自行搜索一下哈。 
+
+如果配置了`filter policy`，`TableBuilder`会初始化一个`filter block`，并且调用`filter block`的`StartBlock()`方法，构建一个新的`filter block`。
+
+## TableBuilder::Add(const Slice& key, const Slice& value)
+
+

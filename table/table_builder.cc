@@ -104,40 +104,82 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
     }
 
     /* 在构建下一个 Data Block 之前，将 Index Block 构建出来 */
+    // 当r->pending_index_entry为true时，
+    // 表示上一个`Data Block`已经构建完了，需要把它的`Index`添加到`Index Block`里。
     if (r->pending_index_entry) {
         assert(r->data_block.empty());
 
-        /* 通过 last_key 和 当前 key 计算得到一个 X，使得 last_entry <= X < key
-         */
+        // `FindShortestSeparator`用于计算上一个`Key`和当前`Key`的分隔符，
+        // 即`Last Key` <= `Seperator` < `Current Key`，用于上一个`Data Block`的最大Key。
+        // 我们先说下分隔符`Separator`的作用，再说为什么不直接使用上一个`Data Block`的最后一个Key作为分隔符。
+        // 当LevelDB在查找某个`Key`的时候，会先定位到是哪个`SST`，然后再到`SST`内部查找。
+        // 我们可以直接对`SST`二分查找，但还可以更快，就是将`SST`里的`Key-Value`按照`Data Block`分组。
+        // 每个`Data Block`的大小固定，先定位目标`Key`在哪个`Data Block`，然后再到该`Data Block`内部查找。
+        // SST里有一个`Index Block`，是用来存放`Data Block`的索引的，它长这样：
+        // 
+        // +------------------------+
+        // | Key1 | Offset1 | Size1 |
+        // +------------------------+
+        // | Key2 | Offset2 | Size2 |
+        // +------------------------+
+        // | Key3 | Offset3 | Size3 |
+        // +------------------------+
+        // |          ....          |
+        // +------------------------+
+        //
+        // `Index Block`里一行{ Key-Offset-Size }就代表了一个`Data Block`。
+        // 其中，`Key1`代表了`Data Block 1`里`Key`的最大值。
+        // `Offset`代表了`Data Block 1`在SST里的偏移量，`Size`表示`Data Block 1`的大小。
+        // (Key1, Key2]就代表了`Data Block 2`里`Key`的取值范围。
+        //
+        // `FindShortestSeparator`就是用来生成`Data Block`对应于`Index Block`里的`Key`的。
+        // 
+        // 那为什么不直接用`Data Block 2`里最后一个`Key`作为`Index Block`里的`Key2`呢？
+        // 还要通过`FindShortestSeparator`生成。
+        // 为了压缩`Index Block`的空间，用一个最短的`Seperator`表示`Data Block`的`Upper Bound`。
+ 
         r->options.comparator->FindShortestSeparator(&r->last_key, key);
+
+        // `handle_encoding`里存放的就是`Data Block`的`Offset`和`Size`。
         std::string handle_encoding;
         r->pending_handle.EncodeTo(&handle_encoding);
 
-        /* 向 Index Block 中添加上一个 Data Block 的 Index */
+        // 将上一个Data Block的`Key-Offset-Size`追加到`Index Block`里。
         r->index_block.Add(r->last_key, Slice(handle_encoding));
 
-        /* 上一个 Data Block 的 Index Block 已经写完，故更新 pending_index_entry
-         * 为 false */
+        // 上一个`Data Block`的`Index`已经添加到`Index Block`里了，
+        // 把`pending_index_entry`置为false，表示当前没有待添加`Index`的`Data Block`。
         r->pending_index_entry = false;
     }
 
-    /* 若指定了 FilterPolicy，那么就会写入 Filter Block */
+    // 如果配置了`Filter`，就将`Key`添加到`Filter Block`里。
+    // 此处的`Key`为`Internal Key`，即`User Key + Sequence Number | Value Type`。
+    // 为什么添加到`Filter Block`里的是`Internal Key`而不是`User Key`呢？
+    // 为了支持多版本控制。
+    // 举个例子，当用户创建了一个快照，然后把某个`Key`删除了，此时从快照里查找这个`Key`，
+    // 如果`Filter Block`里存放的是`User Key`，就没法去查找快照版本的`Key`，只能
+    // 查找最新版本的，结果就是`Key`已经不存在了。
     if (r->filter_block != nullptr) {
         r->filter_block->AddKey(key);
     }
 
-    /* 更新 last_key */
+    // 更新last_key，用于下一个`Data Block`的`FindShortestSeparator`。
     r->last_key.assign(key.data(), key.size());
-    /* 更新 Key-Value 写入数量 */
+
+    // 更新`SST`里的`Key-Value`数量。
     r->num_entries++;
-    /* 将数据添加至 Data Block 中 */
+    
+    // 将`Key-Value`添加到`Data Block`里。
     r->data_block.Add(key, value);
 
-    /* Data Block 的默认大小为 4KB */
+    // `options.block_size`为`Data Block`的大小的上限，
+    // 默认为4KB，当`Data Block`的大小超过这个值时，就需要结束当前
+    // `Data Block`的构建，开始构建下一个`Data Block`。
     const size_t estimated_block_size = r->data_block.CurrentSizeEstimate();
     if (estimated_block_size >= r->options.block_size) {
-        /* 结束当前 Block 的构建，Flush() 方法内部将会把 pending_index_entry
-         * 置为 True */
+        // `TableBuilder::Flush()`会结束当前`Data Block`的构建，生成`Block Handle`，
+        // 并且把`pending_index_entry`置为`true`，表示当前有一个待添加`Index`的`Data Block`。
+        // 等到添加下一个`Key`时，就会把这个满的`Data Block`的`Index`添加到`Index Block`里。
         Flush();
     }
 }
