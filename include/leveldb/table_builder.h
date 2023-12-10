@@ -51,17 +51,18 @@ class LEVELDB_EXPORT TableBuilder {
     // Add key,value to the table being constructed.
     // REQUIRES: key is after any previously added key according to comparator.
     // REQUIRES: Finish(), Abandon() have not been called
-    /* 向 TableBuilder 中添加 Key-Value */
+    // 向`Data Block`中添加`Key-Value`，并同步更新其他`Block`，
+    // 如`Filter Block`、`Index Block`。
+    // 只是添加到`Block`的缓冲区，还没有写入到文件。
+    // 最后再通过调用`Finish()`方法将各个`Block`缓冲区中的内容写入到文件中。
     void Add(const Slice& key, const Slice& value);
 
     // Advanced operation: flush any buffered key/value pairs to file.
     // Can be used to ensure that two adjacent entries never live in
     // the same data block.  Most clients should not need to use this method.
     // REQUIRES: Finish(), Abandon() have not been called
-    /* 结束当前 Block 的构建 */
-    // Flush()方法用于将缓冲区中的键值对立即写入到文件中。
-    // 这个方法主要用于确保两个相邻的条目永远不会在同一个数据块中。
-    // 大多数情况不需要使用这个方法。调用Flush()方法后，TableBuilder仍然可以继续添加新的键值对。
+    // Flush只是结束当前`Data Block`的构建，并开辟一个新的`Data Block`。
+    // 当前`Data Block`满后，会调用`Flush()`。
     void Flush();
 
     // Return non-ok iff some error has been detected.
@@ -70,10 +71,8 @@ class LEVELDB_EXPORT TableBuilder {
     // Finish building the table.  Stops using the file passed to the
     // constructor after this function returns.
     // REQUIRES: Finish(), Abandon() have not been called
-    /* 结束 Table 的构建 */
-    // Finish()方法用于完成SSTable的构建。
-    // 调用这个方法后，TableBuilder将停止使用传递给构造函数的文件句柄，并将所有缓冲区中的键值对以及元数据写入到文件中。
-    // 一旦调用了Finish()方法，就不能再向TableBuilder中添加新的键值对，也不能再次调用Finish()方法。
+    // Finish()方法会将各个Block的内容写入到文件中，并且在文件的尾部添加一个`Footer`，
+    // 结束该`SST`文件的构建。
     Status Finish();
 
     // Indicate that the contents of this builder should be abandoned.  Stops
