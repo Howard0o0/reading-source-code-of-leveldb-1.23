@@ -366,6 +366,7 @@ Status TableBuilder::Finish() {
 void TableBuilder::Abandon() {
     Rep* r = rep_;
     assert(!r->closed);
+    // 将 closed 置为 true，表示当前 Table 的构建已经结束。
     r->closed = true;
 }
 

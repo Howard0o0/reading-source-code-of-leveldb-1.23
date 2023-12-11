@@ -489,3 +489,41 @@ Footer
         └── Data Block M 的地址
 ```
 
+至此，`TableBuilder`的主要成员函数我们都分析完了，还剩下一些辅助的成员函数，感兴趣的同学可以继续往下看。
+
+## TableBuilder::Abandon()
+
+在 LevelDB 中，`TableBuilder::Abandon` 方法的使用场景主要涉及到放弃当前 SST (Sorted String Table) 文件构建的情况。这种情况通常发生在以下几个方面：
+
+- **写入过程中遇到错误**：
+   - 如果在构建 SST 文件的过程中遇到了不可恢复的错误，例如磁盘写入错误或数据损坏，`TableBuilder::Abandon` 会被调用。
+   - 使用 `Abandon` 方法可以确保不会尝试完成或关闭已经遭遇错误的 SST 文件。
+
+- **数据库关闭或异常中断**：
+   - 在数据库关闭过程中或由于某些异常（如崩溃、断电等）导致的突然中断，可能需要放弃当前正在构建的 SST 文件。
+   - 在这种情况下，`TableBuilder::Abandon` 用于放弃当前的 SST 文件构建，以保证数据库的一致性和完整性。
+
+```c++
+void TableBuilder::Abandon() {
+    Rep* r = rep_;
+    assert(!r->closed);
+    // 将 closed 置为 true，表示当前 Table 的构建已经结束。
+    r->closed = true;
+}
+```
+
+## TableBuilder::NumEntries
+
+返回 SST 文件中的 Key-Value 对数量。
+
+```c++
+uint64_t TableBuilder::NumEntries() const { return rep_->num_entries; }
+```
+
+## TableBuilder::FileSize
+
+返回 SST 文件的大小。
+
+```c++
+uint64_t TableBuilder::FileSize() const { return rep_->offset; }
+```
