@@ -71,7 +71,7 @@ class LEVELDB_EXPORT TableBuilder {
     // Finish building the table.  Stops using the file passed to the
     // constructor after this function returns.
     // REQUIRES: Finish(), Abandon() have not been called
-    // Finish()方法会将各个Block的内容写入到文件中，并且在文件的尾部添加一个`Footer`，
+    // Finish()方法会将各个 Block 的内容写入到文件中，并且在文件的尾部添加一个`Footer`，
     // 结束该`SST`文件的构建。
     Status Finish();
 

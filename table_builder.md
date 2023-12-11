@@ -213,3 +213,279 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
 ```
 
 `r->options.comparator->FindShortestSeparator(&r->last_key, key)`的实现详情请移步[TODO](TODO)。
+
+`r->index_block.Add(r->last_key, Slice(handle_encoding))`的实现详情请移步[TODO](TODO)。
+
+`r->filter_block->AddKey(key)`的实现详情请移步[TODO](TODO)。
+
+`r->data_block.Add(key, value);`的实现详情请移步[TODO](TODO)。
+
+## TableBuilder::WriteBlock
+
+`WriteBlock`将 Data Block 压缩后写入到 SST 文件中，并生成 Block Handle。
+
+1. `block->Finish`获取 Block 里的全部数据。
+2. `port::Snappy_Compress`对 Block 的数据进行压缩，如果压缩率大于 12.5% 就使用压缩后的结果，否则使用原始数据。
+3. `WriteRawBlock`将压缩后对 Block 数据、压缩类型写入到文件中。
+
+```c++
+void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
+    assert(ok());
+    Rep* r = rep_;
+
+    // 获取 Block 里的全部数据
+    Slice raw = block->Finish();
+
+    Slice block_contents;
+
+    // 默认压缩方式为 kSnappyCompression
+    CompressionType type = r->options.compression;
+    // TODO(postrelease): Support more compression options: zlib?
+    switch (type) {
+        case kNoCompression:
+            block_contents = raw;
+            break;
+
+        case kSnappyCompression: {
+            std::string* compressed = &r->compressed_output;
+
+            // 进行 snappy 压缩，并且只有在压缩率大于 12.5% 时才会选用压缩结果.
+            if (port::Snappy_Compress(raw.data(), raw.size(), compressed) &&
+                compressed->size() < raw.size() - (raw.size() / 8u)) {
+                block_contents = *compressed;
+            } else {
+                // 配置了 Snappy 但是没有找到 Snapp 的库，或者是使用 snappy 压缩时压缩率低于 12.5% */
+                block_contents = raw;
+                type = kNoCompression;
+            }
+            break;
+        }
+    }
+    // 将处理后的 block contents、压缩类型写入到文件中，
+    // 并且填充 block handle 
+    WriteRawBlock(block_contents, type, handle);
+
+    // 清空压缩缓冲区
+    r->compressed_output.clear();
+    // 该 block 已经写入到文件中了，不再需要了，清空
+    block->Reset();
+}
+```
+
+## TableBuilder::WriteRawBlock
+
+`TableBuilder::WriteRawBlock`将压缩后的 Block 数据、压缩类型以及 CRC 校验码写入到文件中，并且填充 block handle。
+
+1. `handle->set_offset`填充 block handle 的 offset 字段，表示当前 block 在 SST 文件中的偏移量。
+2. `handle->set_size`填充 block handle 的 size 字段，表示当前 block 的大小。
+3. `r->file->Append(block_contents)`将 block contents 追加到 SST 文件中。
+4. 生成`tailer`，`tailer`的格式为：`1-byte Type + 32-bit CRC`。
+5. `r->file->Append(Slice(trailer, kBlockTrailerSize))`将`tailer`追加到 SST 文件中。
+
+```c++
+void TableBuilder::WriteRawBlock(const Slice& block_contents, CompressionType type,
+                                 BlockHandle* handle) {
+    Rep* r = rep_;
+    // 填充 block handle，
+    //   - offset: 当前 block 在 SST 文件中的偏移量
+    //   - size: block 的大小
+    handle->set_offset(r->offset);
+    handle->set_size(block_contents.size());
+
+    // 将 block contents 写入到 SST 文件中
+    r->status = r->file->Append(block_contents);
+    if (r->status.ok()) {
+        // 1-byte Type + 32-bit CRC
+        char trailer[kBlockTrailerSize];
+        
+        // block_contents 的压缩类型
+        //  - kNoCompression: 0
+        //  - kSnappyCompression: 1
+        trailer[0] = type;
+
+        // 先算出 block contents 的 crc32
+        uint32_t crc = crc32c::Value(block_contents.data(), block_contents.size());
+        // 再扩展下 block contents 的 crc32，
+        // 相当于计算 block contents + type 的 crc32c。
+        // 因为 block contents 和 type 不是存放在一起的，所以
+        // 需要使用 Extend 的方式计算二者的 crc32c。
+        crc = crc32c::Extend(crc, trailer, 1);  // Extend crc to cover block type
+        EncodeFixed32(trailer + 1, crc32c::Mask(crc));
+        // 将 trailer 部分追加到 SST 文件
+        r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
+        if (r->status.ok()) {
+            r->offset += block_contents.size() + kBlockTrailerSize;
+        }
+    }
+}
+```
+
+## TableBuilder::Flush()
+
+`TableBuilder::Flush()`会结束当前 Data Block 的构建，并为下一个 Data Block 的构建做好准备。
+
+1. `WriteBlock`将 Data Block 压缩后写入到 SST 文件中，并生成 Block Handle。
+2. `filter_block->StartBlock`为下一个 Data Block 先创建对应的 filter。
+
+```c++
+void TableBuilder::Flush() {
+    Rep* r = rep_;
+    assert(!r->closed);
+    if (!ok()) return;
+    if (r->data_block.empty()) return;
+    assert(!r->pending_index_entry);
+
+    // 对 Data Block 进行压缩然后写入到 SST 文件中，并生成 Block Handle
+    WriteBlock(&r->data_block, &r->pending_handle);
+    if (ok()) {
+        // 设置 pending_index_entry 为 true，下一次写入 Data Block 时，
+        // 再把这个满的 Data Block 的 Index 添加到 Index Block 里。
+        r->pending_index_entry = true;
+        // 将`file->buffer`里的数据刷到内核缓冲区。
+        r->status = r->file->Flush();
+    }
+    if (r->filter_block != nullptr) {
+        // 这里应该叫 StartFilter 比较合适，
+        // filter_block 里有多个 filter，每个 filter 对应一个 Data Block。
+        // 当前 Data Block 构建完了，就要开始构建下一个 Data Block 了，
+        // 在这之前先构建下一个 Data Block 对应的 filter。
+        r->filter_block->StartBlock(r->offset);
+    }
+}
+```
+
+
+`WriteBlock`的实现详情请移步[TODO](TODO)。
+
+## TableBuilder::Finish
+
+`TableBuilder::Finish`会将各个 Block 的内容写入到文件中，并且在文件的尾部添加一个`Footer`，结束该 SST 文件的构建。
+
+1. `Flush()`将最后一个 Data Block 写入 SST。
+2. `WriteRawBlock(r->filter_block->Finish(), kNoCompression, &filter_block_handle)`将 Meta Block 写入 SST。
+3. `WriteBlock(&meta_index_block, &metaindex_block_handle)`将 Meta Index Block 写入 SST。
+4. `WriteBlock(&r->index_block, &index_block_handle)`将 Index Block 写入 SST。
+5. `r->file->Append(footer_encoding)`将 Footer 写入 SST。Footer 包含：
+   - Meta Index Block 的 Block Handle
+   - Index Block 的 Block Handle
+
+```c++
+Status TableBuilder::Finish() {
+    Rep* r = rep_;
+
+    // 将最后一个 Data Block 写入 SST
+    Flush();
+    assert(!r->closed);
+    r->closed = true;
+
+    BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle;
+
+    // 写完 Data Block 后，写 Meta Block。
+    // 目前 Meta Block 只有 Filter Block 一种。
+    // 将 Filter Block 写入 SST。
+    if (ok() && r->filter_block != nullptr) {
+        WriteRawBlock(r->filter_block->Finish(), kNoCompression, &filter_block_handle);
+    }
+
+    // 写完 Meta Block 后，写 Meta Index Block。
+    if (ok()) {
+        BlockBuilder meta_index_block(&r->options);
+        if (r->filter_block != nullptr) {
+            // Add mapping from "filter.Name" to location of filter data
+            std::string key = "filter.";
+            // 若使用 Bloom Filter，key 的值为
+            // filter.leveldb.BuiltinBloomFilter2
+            key.append(r->options.filter_policy->Name());
+            std::string handle_encoding;
+            filter_block_handle.EncodeTo(&handle_encoding);
+            meta_index_block.Add(key, handle_encoding);
+        }
+
+        // TODO(postrelease): Add stats and other meta blocks
+        // 将 Meta Index Block 写入 SST。
+        WriteBlock(&meta_index_block, &metaindex_block_handle);
+    }
+
+    // 写完 Meta Index Block 后，写 Index Block。
+    if (ok()) {
+        // 先看下有没有 pending_index_entry，如果有的话，就把它添加到 Index Block 里。
+        if (r->pending_index_entry) {
+            r->options.comparator->FindShortSuccessor(&r->last_key);
+            std::string handle_encoding;
+            r->pending_handle.EncodeTo(&handle_encoding);
+            r->index_block.Add(r->last_key, Slice(handle_encoding));
+            r->pending_index_entry = false;
+        }
+        // 将 Index Block 写入 SST。
+        WriteBlock(&r->index_block, &index_block_handle);
+    }
+
+    // 最后写 Footer
+    //   - metaindex_handle: Meta Index Block 的 Block Handle
+    //   - index_handle: Index Block 的 Block Handle
+    if (ok()) {
+        Footer footer;
+        // 将 Meta Index Block 的 Block Handle 写入 Footer
+        footer.set_metaindex_handle(metaindex_block_handle);
+        // 将 Index Block 的 Block Handle 写入 Footer
+        footer.set_index_handle(index_block_handle);
+        std::string footer_encoding;
+        footer.EncodeTo(&footer_encoding);
+        // 将 Footer 写入 SST。
+        r->status = r->file->Append(footer_encoding);
+        if (r->status.ok()) {
+            r->offset += footer_encoding.size();
+        }
+    }
+    return r->status;
+}
+```
+
+看完`TableBuilder::Finish`，我们就很清楚 SST 的格式了。
+
+```plaintext
+              +---------------------+
+      +-----> |   Data Block 1      |
+      |       +---------------------+
+      |       |   Data Block 2      |
+      |       +---------------------+
+      |       |        ...          |
+      |       +---------------------+
+      |       |   Data Block N      |
+      |       +---------------------+
++-----------> |   Meta Block 1      |
+|     |       +---------------------+
+|     |       |        ...          |
+|     |       +---------------------+
+|     |       |   Meta Block K      |
+|     |       +---------------------+
++-------------+ Metaindex Block     | <-----------+
+      |       +---------------------+             |
+      +-------+   Index Block       | <---------------------+
+              +---------------------+             |         |
+              |      Footer         +-------------+---------+
+              +---------------------+
+```
+
+整个 SST 其实就包含两类数据，是**数据本身**与**指针**。
+
+并且指针是逐层关联的。
+
+```plaintext
+Footer
+│
+├── Meta Index Block 的地址
+│   └── 各个 Meta Block 的地址
+│       ├── Meta Block 1 的地址
+│       ├── Meta Block 2 的地址
+│       ├── ...
+│       └── Meta Block N 的地址
+│
+└── Index Block 的地址
+    └── 各个 Data Block 的地址
+        ├── Data Block 1 的地址
+        ├── Data Block 2 的地址
+        ├── ...
+        └── Data Block M 的地址
+```
+

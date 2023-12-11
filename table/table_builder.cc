@@ -191,17 +191,20 @@ void TableBuilder::Flush() {
     if (r->data_block.empty()) return;
     assert(!r->pending_index_entry);
 
-    /* 对 Data Block 进行压缩，并生成 Block Handle */
+    // 对 Data Block 进行压缩然后写入到 SST 文件中，并生成 Block Handle
     WriteBlock(&r->data_block, &r->pending_handle);
     if (ok()) {
-        /* 设置 pending_index_entry 为 true，下一次写入 Data Block 时，需构建
-         * Index Block */
+        // 设置 pending_index_entry 为 true，下一次写入 Data Block 时，
+        // 再把这个满的 Data Block 的 Index 添加到 Index Block 里。
         r->pending_index_entry = true;
-        /* 将数据写入至内核缓冲区 */
+        // 将`file->buffer`里的数据刷到内核缓冲区。
         r->status = r->file->Flush();
     }
     if (r->filter_block != nullptr) {
-        /* 创建一个新的 Filter Block */
+        // 这里应该叫 StartFilter 比较合适，
+        // filter_block 里有多个 filter，每个 filter 对应一个 Data Block。
+        // 当前 Data Block 构建完了，就要开始构建下一个 Data Block 了，
+        // 在这之前先构建下一个 Data Block 对应的 filter。
         r->filter_block->StartBlock(r->offset);
     }
 }
@@ -214,12 +217,12 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
     assert(ok());
     Rep* r = rep_;
 
-    /* 获取 Data Block 的全部数据 */
+    // 获取 Block 里的全部数据
     Slice raw = block->Finish();
 
     Slice block_contents;
 
-    /* 默认压缩方式为 kSnappyCompression */
+    // 默认压缩方式为 kSnappyCompression
     CompressionType type = r->options.compression;
     // TODO(postrelease): Support more compression options: zlib?
     switch (type) {
@@ -230,38 +233,57 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
         case kSnappyCompression: {
             std::string* compressed = &r->compressed_output;
 
-            /* 进行 snappy 压缩，并且只有在压缩率大于 12.5 时才会选用压缩结果 */
+            // 进行 snappy 压缩，并且只有在压缩率大于 12.5% 时才会选用压缩结果.
             if (port::Snappy_Compress(raw.data(), raw.size(), compressed) &&
                 compressed->size() < raw.size() - (raw.size() / 8u)) {
                 block_contents = *compressed;
             } else {
-                /* 未配置压缩算法，或者是使用 snappy 压缩时压缩率低于 12.5% */
+                // 配置了 Snappy 但是没有找到 Snapp 的库，或者是使用 snappy 压缩时压缩率低于 12.5% */
                 block_contents = raw;
                 type = kNoCompression;
             }
             break;
         }
     }
-    /* 将处理后的 block contents、压缩类型以及 block handle 写入到文件中 */
+    // 将处理后的 block contents、压缩类型写入到文件中，
+    // 并且填充 block handle 
     WriteRawBlock(block_contents, type, handle);
-    /* 清空临时存储 buffer */
+
+    // 清空压缩缓冲区
     r->compressed_output.clear();
-    /* 清空 Data Block */
+    // 该 block 已经写入到文件中了，不再需要了，清空
     block->Reset();
 }
 
 void TableBuilder::WriteRawBlock(const Slice& block_contents, CompressionType type,
                                  BlockHandle* handle) {
     Rep* r = rep_;
+    // 填充 block handle，
+    //   - offset: 当前 block 在 SST 文件中的偏移量
+    //   - size: block 的大小
     handle->set_offset(r->offset);
     handle->set_size(block_contents.size());
+
+    // 将 block contents 写入到 SST 文件中
     r->status = r->file->Append(block_contents);
     if (r->status.ok()) {
+        // 1-byte Type + 32-bit CRC
         char trailer[kBlockTrailerSize];
+        
+        // block_contents 的压缩类型
+        //  - kNoCompression: 0
+        //  - kSnappyCompression: 1
         trailer[0] = type;
+
+        // 先算出 block contents 的 crc32
         uint32_t crc = crc32c::Value(block_contents.data(), block_contents.size());
+        // 再扩展下 block contents 的 crc32，
+        // 相当于计算 block contents + type 的 crc32c。
+        // 因为 block contents 和 type 不是存放在一起的，所以
+        // 需要使用 Extend 的方式计算二者的 crc32c。
         crc = crc32c::Extend(crc, trailer, 1);  // Extend crc to cover block type
         EncodeFixed32(trailer + 1, crc32c::Mask(crc));
+        // 将 trailer 部分追加到 SST 文件
         r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
         if (r->status.ok()) {
             r->offset += block_contents.size() + kBlockTrailerSize;
@@ -274,26 +296,28 @@ Status TableBuilder::status() const { return rep_->status; }
 Status TableBuilder::Finish() {
     Rep* r = rep_;
 
-    /* 将最后一个 Data Block 写入 */
+    // 将最后一个 Data Block 写入 SST
     Flush();
     assert(!r->closed);
     r->closed = true;
 
     BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle;
 
-    // Write filter block
+    // 写完 Data Block 后，写 Meta Block。
+    // 目前 Meta Block 只有 Filter Block 一种。
+    // 将 Filter Block 写入 SST。
     if (ok() && r->filter_block != nullptr) {
         WriteRawBlock(r->filter_block->Finish(), kNoCompression, &filter_block_handle);
     }
 
-    // Write metaindex block
+    // 写完 Meta Block 后，写 Meta Index Block。
     if (ok()) {
         BlockBuilder meta_index_block(&r->options);
         if (r->filter_block != nullptr) {
             // Add mapping from "filter.Name" to location of filter data
             std::string key = "filter.";
-            /* 若使用 Bloom Filter，key 的值为
-             * filter.leveldb.BuiltinBloomFilter2 */
+            // 若使用 Bloom Filter，key 的值为
+            // filter.leveldb.BuiltinBloomFilter2
             key.append(r->options.filter_policy->Name());
             std::string handle_encoding;
             filter_block_handle.EncodeTo(&handle_encoding);
@@ -301,12 +325,13 @@ Status TableBuilder::Finish() {
         }
 
         // TODO(postrelease): Add stats and other meta blocks
-        /* 写入 Metaindex Block */
+        // 将 Meta Index Block 写入 SST。
         WriteBlock(&meta_index_block, &metaindex_block_handle);
     }
 
-    // Write index block
+    // 写完 Meta Index Block 后，写 Index Block。
     if (ok()) {
+        // 先看下有没有 pending_index_entry，如果有的话，就把它添加到 Index Block 里。
         if (r->pending_index_entry) {
             r->options.comparator->FindShortSuccessor(&r->last_key);
             std::string handle_encoding;
@@ -314,16 +339,22 @@ Status TableBuilder::Finish() {
             r->index_block.Add(r->last_key, Slice(handle_encoding));
             r->pending_index_entry = false;
         }
+        // 将 Index Block 写入 SST。
         WriteBlock(&r->index_block, &index_block_handle);
     }
 
-    // Write footer
+    // 最后写 Footer
+    //   - metaindex_handle: Meta Index Block 的 Block Handle
+    //   - index_handle: Index Block 的 Block Handle
     if (ok()) {
         Footer footer;
+        // 将 Meta Index Block 的 Block Handle 写入 Footer
         footer.set_metaindex_handle(metaindex_block_handle);
+        // 将 Index Block 的 Block Handle 写入 Footer
         footer.set_index_handle(index_block_handle);
         std::string footer_encoding;
         footer.EncodeTo(&footer_encoding);
+        // 将 Footer 写入 SST。
         r->status = r->file->Append(footer_encoding);
         if (r->status.ok()) {
             r->offset += footer_encoding.size();
