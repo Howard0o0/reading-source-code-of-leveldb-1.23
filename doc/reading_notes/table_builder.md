@@ -212,7 +212,7 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
 }
 ```
 
-`r->options.comparator->FindShortestSeparator(&r->last_key, key)`的实现详情请移步[TODO](TODO)。
+`r->options.comparator->FindShortestSeparator(&r->last_key, key)`的实现详情请移步[大白话解析LevelDB：Comparator](https://blog.csdn.net/sinat_38293503/article/details/134942252?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22134942252%22%2C%22source%22%3A%22sinat_38293503%22%7D#BytewiseComparatorImplFindShortestSeparatorstdstring_start_const_Slice_limit_69)。
 
 `r->index_block.Add(r->last_key, Slice(handle_encoding))`的实现详情请移步[TODO](TODO)。
 
@@ -354,9 +354,6 @@ void TableBuilder::Flush() {
 }
 ```
 
-
-`WriteBlock`的实现详情请移步[TODO](TODO)。
-
 ## TableBuilder::Finish
 
 `TableBuilder::Finish`会将各个 Block 的内容写入到文件中，并且在文件的尾部添加一个`Footer`，结束该 SST 文件的构建。
@@ -401,7 +398,6 @@ Status TableBuilder::Finish() {
             meta_index_block.Add(key, handle_encoding);
         }
 
-        // TODO(postrelease): Add stats and other meta blocks
         // 将 Meta Index Block 写入 SST。
         WriteBlock(&meta_index_block, &metaindex_block_handle);
     }

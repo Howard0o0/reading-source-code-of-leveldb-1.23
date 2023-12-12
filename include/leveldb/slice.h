@@ -108,8 +108,11 @@ inline bool operator==(const Slice& x, const Slice& y) {
 inline bool operator!=(const Slice& x, const Slice& y) { return !(x == y); }
 
 inline int Slice::compare(const Slice& b) const {
+    // 计算两个`Slice`的最小长度
     const size_t min_len = (size_ < b.size_) ? size_ : b.size_;
+    // 使用`memcmp`比较两个字符串的前 min_len 个字符
     int r = memcmp(data_, b.data_, min_len);
+    // 如果前 min_len 个字符相等，则比较两个字符串的长度
     if (r == 0) {
         if (size_ < b.size_)
             r = -1;
