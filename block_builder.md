@@ -36,7 +36,9 @@ class BlockBuilder {
 };
 ```
 
-## BlockBuilder::Add(const Slice& key, const Slice& value)
+## BlockBuilder 的代码实现
+
+### BlockBuilder::Add(const Slice& key, const Slice& value)
 
 通过`BlockBuilder::Add(const Slice& key, const Slice& value)`方法，我们可以将 Key-Value 添加到 BlockBuilder 的缓冲区里，并且会对 Key 进行前缀压缩，每隔 N 个 Key 会添加一个重启点。
 
@@ -123,3 +125,65 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
     counter_++;
 }
 ```
+
+### BlockBuilder::Finish()
+
+在`BlockBuilder::Finish`之前，已经通过`BlockBuilder::Add`将 Key-Value 添加到了`buffer_`里。
+
+`BlockBuilder::Finish`会在`buffer_`的末尾添加重启点信息，并且将`buffer_`返回。
+
+```c++
+Slice BlockBuilder::Finish() {
+    // 先把 restarts_ 中的所有重启点位置压入 buffer_ 中
+    for (size_t i = 0; i < restarts_.size(); i++) {
+        PutFixed32(&buffer_, restarts_[i]);
+    }
+
+    // 再将重启点的数量压入到 buffer_ 中
+    PutFixed32(&buffer_, restarts_.size());
+
+    // 设置结束标志位
+    finished_ = true;
+    
+    // 返回完整的 buffer_ 内容
+    return Slice(buffer_);
+}
+```
+
+## Block 的内容格式
+
+现在我们可以结合`BlockBuilder::Finish`和`BlockBuilder::Add`的实现，来看看最终的 Block 的内容格式是什么样的。
+
+```plaintext
++----------------+
+|    Key1:Value1 |
++----------------+
+|    Key2:Value2 |
++----------------+
+|       ...      |
++----------------+
+|    KeyN:ValueN |
++----------------+
+| Restart Point1 |
++----------------+
+| Restart Point2 |
++----------------+
+|       ...      |
++----------------+
+| Restart PointM |
++----------------+
+| Num of Restarts|
++----------------+
+```
+
+其中，每条`Key:Value`的格式如下:
+
+```plaintext
++------------+----------------+-----------+---------------------+------------+
+| shared_len | not_shared_len | value_len | not_shared_key_data | value_data |
++------------+----------------+-----------+---------------------+------------+
+```
+
+
+
+

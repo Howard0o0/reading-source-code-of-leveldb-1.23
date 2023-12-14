@@ -61,15 +61,18 @@ size_t BlockBuilder::CurrentSizeEstimate() const {
 }
 
 Slice BlockBuilder::Finish() {
-    /* 压入 restarts_ 数组中的全部内容至 buffer_ */
+    // 先把 restarts_ 中的所有重启点位置压入 buffer_ 中
     for (size_t i = 0; i < restarts_.size(); i++) {
         PutFixed32(&buffer_, restarts_[i]);
     }
-    /* 压入 Restart Points 数量 */
+
+    // 再将重启点的数量压入到 buffer_ 中
     PutFixed32(&buffer_, restarts_.size());
-    /* 设置结束标志位 */
+
+    // 设置结束标志位
     finished_ = true;
-    /* 返回完整的 Buffer 内容 */
+    
+    // 返回完整的 buffer_ 内容
     return Slice(buffer_);
 }
 
