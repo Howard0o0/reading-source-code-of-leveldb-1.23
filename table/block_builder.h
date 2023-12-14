@@ -21,20 +21,22 @@ class BlockBuilder {
     BlockBuilder(const BlockBuilder&) = delete;
     BlockBuilder& operator=(const BlockBuilder&) = delete;
 
-    /* 清空 */
+    // 恢复到一个空白 Block 的状态
     void Reset();
 
-    /* 添加一个 Key-Value 对 */
+    // 往 block buffer 里添加一对 Key-Value
     void Add(const Slice& key, const Slice& value);
 
-    /* 完成 Block 的构建，压入重启点信息，并返回 buffer_，设置 finished_ 为 true
-     */
+    // 将重启点信息也压入到 Block 缓冲区里，结束该 Block 的构建，
+    // 然后返回 buffer_。
     Slice Finish();
 
-    /* 返回 Block 的预估大小 */
+    // 返回 Block 的预估大小。
+    // 准确的说，是 Block 的原始大小，但是 Block 写入
+    // SST 前会进行压缩，所以此处只能返回一个预估大小。
     size_t CurrentSizeEstimate() const;
 
-    /* 判断 buffer_ 是否为空 */
+    // 判断 buffer_ 是否为空
     bool empty() const { return buffer_.empty(); }
 
    private:

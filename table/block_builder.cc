@@ -74,46 +74,50 @@ Slice BlockBuilder::Finish() {
 }
 
 void BlockBuilder::Add(const Slice& key, const Slice& value) {
-    /* 获取 last_key_ */
+    // 获取上一个添加的 Key: last_key_ 
     Slice last_key_piece(last_key_);
     assert(!finished_);
     assert(counter_ <= options_->block_restart_interval);
-    /* 要么 buffer_ 为空，要么 key 大于最后一个被添加到 Block 中的 Key */
+    // 如果 buffer_ 非空，检查 key 是否大于最后一个被添加到 Block 中的 Key
     assert(buffer_.empty()  // No values yet?
            || options_->comparator->Compare(key, last_key_piece) > 0);
 
+    // 初始化一个变量shared，
+    // 用于记录新添加的键和上一次添加的键的共享前缀的长度。
     size_t shared = 0;
 
-    /* 如果 counter_ < block_restart_interval
-     * 的话，说明还没有到重启点，直接进行前缀压缩处理 */
+    // 如果 counter_ < block_restart_interval的话，
+    // 说明还没有到重启点，计算当前键和上一次添加的键的共享前缀的长度。
     if (counter_ < options_->block_restart_interval) {
-        /* last_key_ 就像链表里面儿的 prev 指针一样，只需要计算当前 User Key 和
-         * last_key_ 有多少重合度即可 */
+        // 计算当前键和上一次添加的键的共享前缀的长度 shared
         const size_t min_length = std::min(last_key_piece.size(), key.size());
-        /* 统计前缀长度 */
         while ((shared < min_length) && (last_key_piece[shared] == key[shared])) {
             shared++;
         }
     } else {
-        /* 此时 counter_ 必然等于 block_restart_interval，需要建立新的重启点 */
+        // counter_ == block_restart_interval，
+        // 满足新建重启点的条件了，重置 counter_ 为 0，
+        // 并且将当前的偏移量压入 restarts_ 数组中，记录当前重启点的位置。
+        // 重启点的第一个 Key 不需要进行前缀压缩，
+        // 所以此时保持 shared 的值为 0 即可。
         restarts_.push_back(buffer_.size());
         counter_ = 0;
     }
 
-    /* 获取 key 和 last_key_ 的非共享长度 */
+    // 计算 key 和 last_key_ 的非共享长度
     const size_t non_shared = key.size() - shared;
 
-    /* 使用变长编码，将 "<shared><non_shared><value_size>" 写入 buffer_ */
+    // 使用变长编码，将 "<shared><non_shared><value_size>" 写入 buffer_
     PutVarint32(&buffer_, shared);
     PutVarint32(&buffer_, non_shared);
     PutVarint32(&buffer_, value.size());
 
-    /* 将 User Key 非共享内容压入 buffer_ */
+    // 将 Key 非共享内容压入 buffer_ 
     buffer_.append(key.data() + shared, non_shared);
-    /* 将完整的 Value 压入 buffer_ */
+    // 将完整的 Value 压入 buffer_
     buffer_.append(value.data(), value.size());
 
-    /* 更新 last_key_ 为当前 User Key */
+    // 更新 last_key_
     last_key_.resize(shared);
     last_key_.append(key.data() + shared, non_shared);
     assert(Slice(last_key_) == key);
