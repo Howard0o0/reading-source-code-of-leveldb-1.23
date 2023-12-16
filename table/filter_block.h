@@ -35,13 +35,14 @@ class FilterBlockBuilder {
     FilterBlockBuilder(const FilterBlockBuilder&) = delete;
     FilterBlockBuilder& operator=(const FilterBlockBuilder&) = delete;
 
-    /* 开始构建新的 Filter Block */
+    // 名字有点误导性，真实职责是构造一个与 Data Block 对应的 Filter。
+    // block_offset 是对应的 Data Block 的起始地址。
     void StartBlock(uint64_t block_offset);
 
-    /*添加一个新的 key，将在 `TableBuilder` 中被调用*/
+    // 将 Key 添加到 filter 里。
     void AddKey(const Slice& key);
 
-    /*结束 Filter Block 的构建，并返回 Filter Block 的完整内容*/
+    // 结束 Filter Block 的构建，并返回 Filter Block 的完整内容
     Slice Finish();
 
    private:

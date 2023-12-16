@@ -1,3 +1,4 @@
+
 @[TOC]
 # LevelDB中的数据格式
 
@@ -237,13 +238,13 @@ Meta Block 的格式如下：
 
 ```plaintext
 +-----------------------------------+
-|   Bloom Filter for Data Block 1   |
+|          Bloom Filter 1           |
 +-----------------------------------+
-|   Bloom Filter for Data Block 2   |
+|          Bloom Filter 2           |
 +-----------------------------------+
 |               ...                 |
 +-----------------------------------+
-|   Bloom Filter for Data Block N   |
+|          Bloom Filter N           |
 +-----------------------------------+
 |   Offset of Bloom Filter 1 (4B)   |
 +-----------------------------------+
@@ -262,7 +263,7 @@ Meta Block 的格式如下：
 **解释**:
 
 - **布隆过滤器**:
-   - 每个 "Bloom Filter for Data Block" 表示一个特定 Data Block 的布隆过滤器。
+   - 每个 "Bloom Filter" 表示一个特定范围的布隆过滤器。比如 Data Block 大小为 4MB时，Bloom Filter 大小为 2KB，则 1个 Data Block 会对应 2048 个 Filter。
    - 它由一系列位（0或1）组成，这些位根据该 Data Block 中的键值对通过哈希函数得到。
 
 - **偏移量**:

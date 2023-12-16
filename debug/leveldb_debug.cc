@@ -46,14 +46,15 @@ int main() {
 
     options.create_if_missing = true;
     options.filter_policy = leveldb::NewBloomFilterPolicy(10);
+    options.block_size = 20 * 1024; // 设置Data Block大小为8KB
 
     leveldb::Status status = leveldb::DB::Open(options, "/tmp/leveldb", &db);
 
     leveldb::WriteOptions writeOptions;
     writeOptions.sync = true;
 
-    int numThreads = 16;
-    int total = 1024;
+    int numThreads = 1;
+    int total = 2048;
 
     std::vector<std::thread> threads(numThreads);
 

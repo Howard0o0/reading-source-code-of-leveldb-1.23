@@ -1,23 +1,58 @@
-// Copyright (c) 2012 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
+# FilterBlockBuilder
 
-#include "table/filter_block.h"
+与 BlockBuilder 类似，FilterBlockBuilder 是 FilterBlock 的构建器。
 
-#include "leveldb/filter_policy.h"
+老规矩，先看下 FilterBlockBuilder 的定义，对外提供了哪些接口。
 
-#include "util/coding.h"
+在构造 SST 的过程中，每当一个 Data Block 构建完成，就会通过`StartBlock(uint64_t block_offset)`方法在 Filter Block 里构建与下一个 Data Block 对应的 Filte。
 
-namespace leveldb {
+通过`Add(const Slice& key)`方法，我们可以将需要 Key 添加到对应的 Filter 里。
 
-// See doc/table_format.md for an explanation of the filter block format.
+最后再通过`Finish()`方法，获取 FilterBlock 的完整内容。
 
-// Generate new filter every 2KB of data
-static const size_t kFilterBaseLg = 11;
-static const size_t kFilterBase = 1 << kFilterBaseLg;
+```c++
+class FilterBlockBuilder {
+   public:
+    explicit FilterBlockBuilder(const FilterPolicy*);
 
+    FilterBlockBuilder(const FilterBlockBuilder&) = delete;
+    FilterBlockBuilder& operator=(const FilterBlockBuilder&) = delete;
+
+    // 名字有点误导性，真实职责是构造与 Data Block 对应的 Filters。
+    // block_offset 是对应的 Data Block 的起始地址。
+    void StartBlock(uint64_t block_offset);
+
+    // 将 Key 添加到 filter 里。
+    void AddKey(const Slice& key);
+
+    // 结束 Filter Block 的构建，并返回 Filter Block 的完整内容
+    Slice Finish();
+};
+```
+
+## FilterBlockBuilder 的代码实现
+
+### FilterBlockBuilder::FilterBlockBuilder(const FilterPolicy*)
+
+先来看下 FilterBlockBuilder 的构造函数，它接收一个 FilterPolicy*，这个 FilterPolicy* 是一个接口，它定义了 Filter 的一些操作，比如`CreateFilter()`，`KeyMayMatch()`等。 关于 FilterPolicy 的详情，感兴趣的同学可以移步[TODO](TODO)。
+
+FilterBlockBuilder 的构造函数啥也没做，只是将 FilterPolicy* 保存到成员变量里，供后续使用。
+
+```c++
 FilterBlockBuilder::FilterBlockBuilder(const FilterPolicy* policy) : policy_(policy) {}
+```
 
+### FilterBlockBuilder::StartBlock(uint64_t block_offset)
+
+block_offset 指的是对应的 Data Block 的起始地址。
+
+`FilterBlockBuilder::StartBlock`用于为下一个 Data Block 构建新的 Filter。
+
+FilterBlockBuilder 里有个 buffer，用于积攒需要添加到 Filter 里的 Key。
+
+`FilterBlockBuilder::StartBlock`的职责是把之前积攒的 Key 都构造成 Filter(因为这些 Key 对应的是之前的 Data Block)，然后清空 buffer，为下一个 Data Block 构建新的 Filter。
+
+```c++
 void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
     // 每个 Filter 的大小是固定的，kFilterBase，默认为 2KB。
     // Filter 与 Data Block 是分组对应的关系。
@@ -42,35 +77,27 @@ void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
         GenerateFilter();
     }
 }
+```
 
-/* 此时的 key 为 InternalKey，也就是在尾部追加了 `Sequence Number | Value Type`
- * 的结果 */
-void FilterBlockBuilder::AddKey(const Slice& key) {
-    Slice k = key;
-    /* 注意这里是 keys_.size()，而不是 key.size()，记录的是每一个 key 在 keys_
-     * 中的起始地址 */
-    start_.push_back(keys_.size());
-    keys_.append(k.data(), k.size());
-}
+### FilterBlockBuilder::GenerateFilter()
 
-Slice FilterBlockBuilder::Finish() {
-    if (!start_.empty()) {
-        GenerateFilter();
-    }
+`GenerateFilter()`的作用是根据 filter buffer 生成一个 filter，将该 filter 压入到 result_中，并更新 filter_offsets。
 
-    const uint32_t array_offset = result_.size();
-    /* 将所有的偏移量放到 result_ 尾部，偏移量为定长编码 */
-    for (size_t i = 0; i < filter_offsets_.size(); i++) {
-        PutFixed32(&result_, filter_offsets_[i]);
-    }
+如果 filter buffer 里没有任何 Key，那么就只是往 filter_offsets_ 里压入一个位置，这个位置指向上一个 filter 的位置，不往 result_ 里压入任何 filter。
 
-    /* 将 Bloom Filters 的个数扔到 result_ 尾部*/
-    PutFixed32(&result_, array_offset);
-    /* 将 "base" 的大小放入，因为 kFilterBaseLg 可能会被修改 */
-    result_.push_back(kFilterBaseLg);  // Save encoding parameter in result
-    return Slice(result_);
-}
+相当于构造了一个空的 dummy filter。
 
+`GenerateFilter`的流程简化如下:
+
+1. 获取 filter buffer 里 key 的数量
+2. 如果 key 的数量为 0，那就构造一个空的 dummy filter，结束。
+3. key 的数量不为 0，继续往下走。
+4. 取出所有的 key，构造出一个 filter，压入到 result_ 中。
+5. 清空 filter buffer，为下一个 filter 做准备。
+
+实现如下：
+
+```c++
 // 生成一个 filter，然后压入到 result_ 中
 void FilterBlockBuilder::GenerateFilter() {
     // std::vector<size_t> start_ 里存储的是每个 key 在 std::string keys_ 中的位置。
@@ -130,33 +157,12 @@ void FilterBlockBuilder::GenerateFilter() {
     keys_.clear();
     start_.clear();
 }
+```
 
-FilterBlockReader::FilterBlockReader(const FilterPolicy* policy, const Slice& contents)
-    : policy_(policy), data_(nullptr), offset_(nullptr), num_(0), base_lg_(0) {
-    size_t n = contents.size();
-    if (n < 5) return;  // 1 byte for base_lg_ and 4 for start of offset array
-    base_lg_ = contents[n - 1];
-    uint32_t last_word = DecodeFixed32(contents.data() + n - 5);
-    if (last_word > n - 5) return;
-    data_ = contents.data();
-    offset_ = data_ + last_word;
-    num_ = (n - 5 - last_word) / 4;
-}
+细心的同学可能会有疑惑，`FilterBlockBuilder::tmp_keys_`只是在 `FilterBlockBuilder::GenerateFilter()`这一个方法中有被使用到，其作用只是一个临时的局部变量而已，`FilterBlockBuilder`为什么要把`tmp_keys_`设为成员变量？
 
-bool FilterBlockReader::KeyMayMatch(uint64_t block_offset, const Slice& key) {
-    uint64_t index = block_offset >> base_lg_;
-    if (index < num_) {
-        uint32_t start = DecodeFixed32(offset_ + index * 4);
-        uint32_t limit = DecodeFixed32(offset_ + index * 4 + 4);
-        if (start <= limit && limit <= static_cast<size_t>(offset_ - data_)) {
-            Slice filter = Slice(data_ + start, limit - start);
-            return policy_->KeyMayMatch(key, filter);
-        } else if (start == limit) {
-            // Empty filters do not match any keys
-            return false;
-        }
-    }
-    return true;  // Errors are treated as potential matches
-}
+其实是为了性能。`tmp_keys_`是`std::vector`类型，如果设为局部变量，那么每次调用`GenerateFilter()`时都需要重新创建`tmp_keys`并且重新分配内存。
 
-}  // namespace leveldb
+假设每次调用`FilterBlockBuilder::GenerateFilter()`时使用到的`tmp_keys_`的内存空间为 4KB，那每次调用`GenerateFilter()`都需要重新创建`tmp_keys_`，并重新分配 4KB 的内存。
+
+而如果将`tmp_keys_`设为成员变量，那么只需要在第一次调用`GenerateFilter()`时创建`tmp_keys_`，并分配 4KB 的内存，这 4KB 的内存会一直保留，直到`FilterBlockerBuilder`对象销毁。
