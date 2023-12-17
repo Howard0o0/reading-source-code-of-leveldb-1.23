@@ -48,6 +48,9 @@ class FilterBlockBuilder {
    private:
     void GenerateFilter(); /* 构建一个 Filter */
 
+    // keys_ 需要与 start_ 搭配食用，
+    // result_ 需要与 filter_offsets_ 搭配食用。
+
     const FilterPolicy* policy_;  /* filter 类型，如 BloomFilterPolicy */
     std::string keys_;            /* Internal Keys，全部塞到一个 string 中 */
     std::vector<size_t> start_;   /* 每一个 User Key 在 keys_ 中的起始位置 */

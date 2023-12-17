@@ -543,7 +543,7 @@ class LEVELDB_EXPORT WritableFile {
 
 对于`posix`上`WritableFile`的实现，请移步阅读[TODO](TODO)。
 
-`TableBuilder`生成`SST`的篇幅较多，请移步阅读[TODO](TODO)。
+`TableBuilder`生成`SST`的篇幅较多，请移步阅读[大白话解析LevelDB: TableBuilder](https://blog.csdn.net/sinat_38293503/article/details/135043003)。
 
 #### 挑选合适的level-i用于放置新的`SST`
 

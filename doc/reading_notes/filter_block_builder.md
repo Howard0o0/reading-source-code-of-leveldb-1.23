@@ -186,3 +186,63 @@ void FilterBlockBuilder::GenerateFilter() {
 假设每次调用`FilterBlockBuilder::GenerateFilter()`时使用到的`tmp_keys_`的内存空间为 4KB，那每次调用`GenerateFilter()`都需要重新创建`tmp_keys_`，并重新分配 4KB 的内存。
 
 而如果将`tmp_keys_`设为成员变量，那么只需要在第一次调用`GenerateFilter()`时创建`tmp_keys_`，并分配 4KB 的内存，这 4KB 的内存会一直保留，直到`FilterBlockerBuilder`对象销毁。
+
+### FilterBlockBuilder::Finish()
+
+`FilterBlockBuilder::Finish()` 会将 filter buffer 里的剩余数据构造成最后一个 filter，然后返回 FilterBlock 的完整内容。
+
+Filter Block 的完整内容: `result_` + `filter_offsets_` + `array_offset` + `kFilterBaseLg`
+
+其中:
+
+- `result`是所有 filter 拍平后的数据，也就是说，filter-0, filter-1, ..., filter-n 是按顺序连续存放到 result_ 里的。
+- `filter_offsets`里存放每个 filter 在 result_ 里的位置，比如 filter_offsets[0] 代表的是 filter-0 在 result_ 里的位置。
+- `array_offset`是 filter_offsets_ 的位置。
+- `kFilterBaseLg`是 filter 的大小。
+
+```c++
+Slice FilterBlockBuilder::Finish() {
+    // start_ 非空，表示 filter buffer 里还有数据，需要把它们构造成 Filter。
+    if (!start_.empty()) {
+        GenerateFilter();
+    }
+
+    const uint32_t array_offset = result_.size();
+    // result_ 需要与 filter_offsets_ 搭配食用，
+    // 把 filter_offsets_ 中每个 filter 的位置压入到 result_ 里。
+    for (size_t i = 0; i < filter_offsets_.size(); i++) {
+        PutFixed32(&result_, filter_offsets_[i]);
+    }
+
+    // 再把 filter_offsets_ 的位置压入到 result_ 里。
+    PutFixed32(&result_, array_offset);
+    // 最后再把 filter 的大小放入到 result_ 里，这样 filter 才能被正确解码
+    result_.push_back(kFilterBaseLg);  // Save encoding parameter in result
+
+    // 返回 result_:
+    // result = result_ + filter_offsets_ + array_offset + kFilterBaseLg
+    return Slice(result_);
+}
+```
+
+## Filter Block 的内容格式
+
+Filter Block 的内容由以下几部分组成：
+
+- **Filter Data**：这部分包含了所有的 Filter 数据，每个 Filter 数据都是由 `FilterPolicy::CreateFilter()` 方法生成的。这些 Filter 数据在 Filter Block 中是连续存放的。
+
+- **Filter Offsets**：这部分是一个数组，存放了每个 Filter 在 Filter Data 中的起始位置。这个数组的每个元素都是一个 4 字节的整数，表示对应的 Filter 在 Filter Data 中的起始位置。
+
+- **Start of Filter Offsets**：这部分是一个 4 字节的整数，表示 Filter Offsets 在 Filter Block 中的起始位置。
+
+- **Filter Size**：这部分是一个 1 字节的整数，表示 Filter 的大小。
+
+以下是 Filter Block 的内容格式的图示：
+
+```plaintext
++-------------------+-------------------+-------------------------+-------------+
+|   Filter Data     |  Filter Offsets   | Start of Filter Offsets | Filter Size |
++-------------------+-------------------+-------------------------+-------------+
+```
+
+关于 Filter Block 内容格式的更多细节，可以移步参考[Filter Block 的内容格式](https://blog.csdn.net/sinat_38293503/article/details/134739340?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22134739340%22%2C%22source%22%3A%22sinat_38293503%22%7D#Meta_Block_Filter_Block_212)

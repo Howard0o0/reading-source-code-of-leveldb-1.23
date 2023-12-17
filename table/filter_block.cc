@@ -52,20 +52,25 @@ void FilterBlockBuilder::AddKey(const Slice& key) {
 }
 
 Slice FilterBlockBuilder::Finish() {
+    // start_ 非空，表示 filter buffer 里还有数据，需要把它们构造成 Filter。
     if (!start_.empty()) {
         GenerateFilter();
     }
 
     const uint32_t array_offset = result_.size();
-    /* 将所有的偏移量放到 result_ 尾部，偏移量为定长编码 */
+    // result_ 需要与 filter_offsets_ 搭配食用，
+    // 把 filter_offsets_ 中每个 filter 的位置压入到 result_ 里。
     for (size_t i = 0; i < filter_offsets_.size(); i++) {
         PutFixed32(&result_, filter_offsets_[i]);
     }
 
-    /* 将 Bloom Filters 的个数扔到 result_ 尾部*/
+    // 再把 filter_offsets_ 的位置压入到 result_ 里。
     PutFixed32(&result_, array_offset);
-    /* 将 "base" 的大小放入，因为 kFilterBaseLg 可能会被修改 */
+    // 最后再把 filter 的大小放入到 result_ 里，这样 filter 才能被正确解码
     result_.push_back(kFilterBaseLg);  // Save encoding parameter in result
+
+    // 返回 result_:
+    // result = result_ + filter_offsets_ + array_offset + kFilterBaseLg
     return Slice(result_);
 }
 

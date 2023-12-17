@@ -88,7 +88,10 @@ delete builder;
 
 移步参考[大白话解析LevelDB：数据格式(SST)]https://blog.csdn.net/sinat_38293503/article/details/134739340?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22134739340%22%2C%22source%22%3A%22sinat_38293503%22%7D#SST_92
 
-## `TableBuilder`的构造函数
+## `TableBuilder`的代码实现
+
+
+### `TableBuilder`的构造函数
 
 ```c++
 TableBuilder::TableBuilder(const Options& options, WritableFile* file)
@@ -109,7 +112,7 @@ TableBuilder::TableBuilder(const Options& options, WritableFile* file)
 
 如果配置了`filter policy`，`TableBuilder`会初始化一个`filter block`，并且调用`filter block`的`StartBlock()`方法，构建一个新的`filter block`。
 
-## TableBuilder::Add(const Slice& key, const Slice& value)
+### TableBuilder::Add(const Slice& key, const Slice& value)
 
 此处的`key`指的是`Internal Key`，即`User Key + Sequence Number | Value Type`。
 
@@ -216,11 +219,11 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
 
 `r->index_block.Add(r->last_key, Slice(handle_encoding))`的实现详情请移步[大白话解析LevelDB: BlockBuilder](https://blog.csdn.net/sinat_38293503/article/details/134997464#BlockBuilderAddconst_Slice_key_const_Slice_value_41)。
 
-`r->filter_block->AddKey(key)`的实现详情请移步[TODO](TODO)。
+`r->filter_block->AddKey(key)`的实现详情请移步[大白话解析LevelDB: FilterBlockBuilder](https://blog.csdn.net/sinat_38293503/article/details/135042949#FilterBlockBuilderAddKeyconst_Slice_key_35)。
 
-`r->data_block.Add(key, value);`的实现详情请移步[TODO](TODO)。
+`r->data_block.Add(key, value);`的实现详情请移步[大白话解析LevelDB: BlockBuilder](https://blog.csdn.net/sinat_38293503/article/details/134997464#BlockBuilderAddconst_Slice_key_const_Slice_value_41)。
 
-## TableBuilder::WriteBlock
+### TableBuilder::WriteBlock
 
 `WriteBlock`将 Data Block 压缩后写入到 SST 文件中，并生成 Block Handle。
 
@@ -240,7 +243,6 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
 
     // 默认压缩方式为 kSnappyCompression
     CompressionType type = r->options.compression;
-    // TODO(postrelease): Support more compression options: zlib?
     switch (type) {
         case kNoCompression:
             block_contents = raw;
@@ -272,7 +274,7 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
 }
 ```
 
-## TableBuilder::WriteRawBlock
+### TableBuilder::WriteRawBlock
 
 `TableBuilder::WriteRawBlock`将压缩后的 Block 数据、压缩类型以及 CRC 校验码写入到文件中，并且填充 block handle。
 
@@ -320,7 +322,7 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents, CompressionType ty
 }
 ```
 
-## TableBuilder::Flush()
+### TableBuilder::Flush()
 
 `TableBuilder::Flush()`会结束当前 Data Block 的构建，并为下一个 Data Block 的构建做好准备。
 
@@ -354,7 +356,7 @@ void TableBuilder::Flush() {
 }
 ```
 
-## TableBuilder::Finish
+### TableBuilder::Finish
 
 `TableBuilder::Finish`会将各个 Block 的内容写入到文件中，并且在文件的尾部添加一个`Footer`，结束该 SST 文件的构建。
 
@@ -487,7 +489,7 @@ Footer
 
 至此，`TableBuilder`的主要成员函数我们都分析完了，还剩下一些辅助的成员函数，感兴趣的同学可以继续往下看。
 
-## TableBuilder::Abandon()
+### TableBuilder::Abandon()
 
 在 LevelDB 中，`TableBuilder::Abandon` 方法的使用场景主要涉及到放弃当前 SST (Sorted String Table) 文件构建的情况。这种情况通常发生在以下几个方面：
 
@@ -508,7 +510,7 @@ void TableBuilder::Abandon() {
 }
 ```
 
-## TableBuilder::NumEntries
+### TableBuilder::NumEntries
 
 返回 SST 文件中的 Key-Value 对数量。
 
@@ -516,7 +518,7 @@ void TableBuilder::Abandon() {
 uint64_t TableBuilder::NumEntries() const { return rep_->num_entries; }
 ```
 
-## TableBuilder::FileSize
+### TableBuilder::FileSize
 
 返回 SST 文件的大小。
 
