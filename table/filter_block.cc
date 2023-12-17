@@ -43,13 +43,11 @@ void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
     }
 }
 
-/* 此时的 key 为 InternalKey，也就是在尾部追加了 `Sequence Number | Value Type`
- * 的结果 */
 void FilterBlockBuilder::AddKey(const Slice& key) {
     Slice k = key;
-    /* 注意这里是 keys_.size()，而不是 key.size()，记录的是每一个 key 在 keys_
-     * 中的起始地址 */
+    // std::vector<size_t> start_ 里存储的是每个 key 在 keys_ 中的位置。
     start_.push_back(keys_.size());
+    // std::string keys_ 里存放的是所有的 key，是一个所有 key 拼接起来的字符串。
     keys_.append(k.data(), k.size());
 }
 

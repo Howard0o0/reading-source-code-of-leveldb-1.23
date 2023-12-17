@@ -32,6 +32,26 @@ class FilterBlockBuilder {
 
 ## FilterBlockBuilder 的代码实现
 
+### FilterBlockBuilder::AddKey(const Slice& key)
+
+`AddKey`的作用是将 Key 添加到 filter buffer 里。
+
+`std::string FilterBlockBuilder::keys_`里存放的是所有的 key，是一个所有 key 拼接起来的字符串。
+
+`std::vector<size_t> FilterBlockBuilder::start_`里存储的是每个 key 在 keys_ 中的位置。
+
+`AddKey`就是将 key 添加到 keys_ 里，并且将 key 在 keys_ 中的位置添加到 start_ 里。
+
+```c++
+void FilterBlockBuilder::AddKey(const Slice& key) {
+    Slice k = key;
+    // std::vector<size_t> start_ 里存储的是每个 key 在 keys_ 中的位置。
+    start_.push_back(keys_.size());
+    // std::string keys_ 里存放的是所有的 key，是一个所有 key 拼接起来的字符串。
+    keys_.append(k.data(), k.size());
+}
+```
+
 ### FilterBlockBuilder::FilterBlockBuilder(const FilterPolicy*)
 
 先来看下 FilterBlockBuilder 的构造函数，它接收一个 FilterPolicy*，这个 FilterPolicy* 是一个接口，它定义了 Filter 的一些操作，比如`CreateFilter()`，`KeyMayMatch()`等。 关于 FilterPolicy 的详情，感兴趣的同学可以移步[TODO](TODO)。
