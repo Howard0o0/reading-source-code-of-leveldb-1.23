@@ -12,12 +12,20 @@ class LEVELDB_EXPORT WritableFile {
 
     virtual ~WritableFile();
 
+    // 往文件中追加数据
     virtual Status Append(const Slice& data) = 0;
+    // 关闭文件
     virtual Status Close() = 0;
+    // 将缓冲区里的数据 flush 到文件，并清空缓冲区
     virtual Status Flush() = 0;
+    // 将内核缓冲区里的数据刷盘
     virtual Status Sync() = 0;
 };
 ```
+
+`WritableFile`的实现必须是带有缓冲机制的，因为调用者可能会一次只写入一小部分数据。
+
+如果不带缓冲机制，每次写入少量数据时都要调用一次系统调用 `write`，会降低写入性能很差(频繁的系统调用会增加开销)。
 
 LevelDB 中提供了两种实现`WritableFile`的方式：
 
@@ -137,3 +145,47 @@ Status Append(const Slice& data) override {
 }
 ```
 
+### PosixWritableFile::FlushBuffer()
+
+`FlushBuffer`方法的作用是将缓冲区的数据 flush 到文件，并清空缓冲区。
+
+```c++
+Status FlushBuffer() {
+    // 将缓冲区里的数据写入到文件
+    Status status = WriteUnbuffered(buf_, pos_);
+    // 清空缓冲区
+    pos_ = 0;
+    return status;
+}
+```
+
+### PosixWritableFile::WriteUnbuffered(const char* data, size_t size)
+
+`WriteUnbuffered`方法的作用是将数据直接写入到文件。它会循环调用write系统调用，直到所有数据都已写入。
+
+```c++
+Status WriteUnbuffered(const char* data, size_t size) {
+    // 只要待写入数据大小还大于 0，就一直尝试写入
+    while (size > 0) {
+        // 通过系统调用 ::write 将数据写入到文件
+        ssize_t write_result = ::write(fd_, data, size);
+        // write_result < 0，表示 ::write 系统调用失败。
+        if (write_result < 0) {
+            // 如果只是因为中断导致的写入失败，那么尝试重新写入
+            if (errno == EINTR) {
+                continue;  // Retry
+            }
+            // 如果是其他原因导致的写入失败，那么返回错误
+            return PosixError(filename_, errno);
+        }
+        // write_result > 0，表示成功写入到文件的数据大小。
+        // 有可能我们通过系统调用 ::write 写入 10KB 的数据，但只会成功写入一部分，
+        // 比如当磁盘空间不足的时候就会这样。
+        // 
+        // 更新 data 与 size，继续尝试写入剩余的数据。
+        data += write_result;
+        size -= write_result;
+    }
+    return Status::OK();
+}
+```

@@ -339,20 +339,32 @@ class PosixWritableFile final : public WritableFile {
 
    private:
     Status FlushBuffer() {
+        // 将缓冲区里的数据写入到文件
         Status status = WriteUnbuffered(buf_, pos_);
+        // 清空缓冲区
         pos_ = 0;
         return status;
     }
 
     Status WriteUnbuffered(const char* data, size_t size) {
+        // 只要待写入数据大小还大于 0，就一直尝试写入
         while (size > 0) {
+            // 通过系统调用 ::write 将数据写入到文件
             ssize_t write_result = ::write(fd_, data, size);
+            // write_result < 0，表示 ::write 系统调用失败。
             if (write_result < 0) {
+                // 如果只是因为中断导致的写入失败，那么尝试重新写入
                 if (errno == EINTR) {
                     continue;  // Retry
                 }
+                // 如果是其他原因导致的写入失败，那么返回错误
                 return PosixError(filename_, errno);
             }
+            // write_result > 0，表示成功写入到文件的数据大小。
+            // 有可能我们通过系统调用 ::write 写入 10KB 的数据，但只会成功写入一部分，
+            // 比如当磁盘空间不足的时候就会这样。
+            // 
+            // 更新 data 与 size，继续尝试写入剩余的数据。
             data += write_result;
             size -= write_result;
         }
