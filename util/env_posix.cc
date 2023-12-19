@@ -258,32 +258,51 @@ class PosixWritableFile final : public WritableFile {
         }
     }
 
+    // 首先尝试将数据拷贝到缓冲区，如果缓冲区被打满了，就将缓冲区的数据 flush 到文件。
+    // 然后，对于剩余的数据:
+    //   - 如果能被缓冲区装下，那么将数据拷贝到缓冲区
+    //   - 否则，直接将数据写入到文件
     Status Append(const Slice& data) override {
         size_t write_size = data.size();
         const char* write_data = data.data();
 
         // Fit as much as possible into buffer.
+        // 计算可以拷贝到缓冲区的数据大小，取write_size和缓冲区剩余空间的较小值
         size_t copy_size = std::min(write_size, kWritableFileBufferSize - pos_);
+        // 把能拷贝的数据拷贝到缓冲区
         std::memcpy(buf_ + pos_, write_data, copy_size);
+        // 更新 write_data: 指向待写入的数据
         write_data += copy_size;
+        // 更新 write_size: 待写入的数据大小
         write_size -= copy_size;
+        // 更新 pos_: 缓冲区中可写入数据的位置
         pos_ += copy_size;
+
+        // 如果把数据拷贝到缓冲区，待写入到数据大小为 0 了，表示要写入到数据
+        // 已经全部放到缓冲区里了，此时可直接返回，等下次再写入数据把缓冲区打
+        // 满了再把缓冲区里的数据 flush 到文件。
         if (write_size == 0) {
             return Status::OK();
         }
 
         // Can't fit in buffer, so need to do at least one write.
+        // 缓冲区的剩余空间无法一次性装下待写入的数据，此时需要通过 FlushBuffer 方法
+        // 先将缓冲区的数据 flush 到文件，并清空缓冲区。
         Status status = FlushBuffer();
         if (!status.ok()) {
             return status;
         }
 
         // Small writes go to buffer, large writes are written directly.
+        // 缓冲区里的数据清空后，此时的待写入数据若可以被缓冲区装下，
+        // 那么就将数据拷贝到缓冲区，然后返回。
         if (write_size < kWritableFileBufferSize) {
             std::memcpy(buf_, write_data, write_size);
             pos_ = write_size;
             return Status::OK();
         }
+
+        // 待写入数据还是无法被缓冲区装下，那将这部分的待写入数据直接写入文件。
         return WriteUnbuffered(write_data, write_size);
     }
 
@@ -532,12 +551,17 @@ class PosixEnv : public Env {
     }
 
     Status NewWritableFile(const std::string& filename, WritableFile** result) override {
+        // O_TRUNC: 如果文件已存在，则将其清空。
+        // O_WRONLY: 以只写方式打开文件。
+        // O_CREAT: 如果文件不存在，则创建文件。
+        // kOpenBaseFlags: 一些基本的 flags，比如 O_CLOEXEC。
         int fd = ::open(filename.c_str(), O_TRUNC | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
         if (fd < 0) {
             *result = nullptr;
             return PosixError(filename, errno);
         }
 
+        // 创建一个 PosixWritableFile 对象
         *result = new PosixWritableFile(filename, fd);
         return Status::OK();
     }
