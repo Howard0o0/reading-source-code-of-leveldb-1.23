@@ -1,5 +1,16 @@
 # MemTable落盘为SST文件
 
+- [MemTable落盘为SST文件](#memtable落盘为sst文件)
+  - [什么是`Compact MemTable`](#什么是compact-memtable)
+  - [什么时候触发`Compact MemTable`](#什么时候触发compact-memtable)
+  - [如何触发`Compact MemTable`](#如何触发compact-memtable)
+  - [`Compact MemTable`的过程](#compact-memtable的过程)
+    - [将`MemTable`落盘成`SST`文件](#将memtable落盘成sst文件)
+      - [将`MemTable`生成一个新的`SST`文件:](#将memtable生成一个新的sst文件)
+      - [挑选合适的 level-i 用于放置新的`SST`](#挑选合适的-level-i-用于放置新的sst)
+      - [将新`SST`的`MetaData`记录到`VersionEdit`中](#将新sst的metadata记录到versionedit中)
+
+
 LevelDB中有两种`Compaction`，一种是`Compact MemTable`，另一种是`Compact SST`。`Compact MemTable`是将`MemTable`落盘为SST文件，`Compact SST`是将多个SST文件合并为一个SST文件。
 
 本章讲述的是`Compact MemTable`的过程。
@@ -541,10 +552,12 @@ class LEVELDB_EXPORT WritableFile {
 };
 ```
 
-对于`posix`上`WritableFile`的实现，请移步阅读[TODO](TODO)。
+对于`posix`上`WritableFile`的实现，请移步阅读[大白话解析LevelDB: WritableFile 接口](https://blog.csdn.net/sinat_38293503/article/details/135118828)。
 
 `TableBuilder`生成`SST`的篇幅较多，请移步阅读[大白话解析LevelDB: TableBuilder](https://blog.csdn.net/sinat_38293503/article/details/135043003)。
 
-#### 挑选合适的level-i用于放置新的`SST`
+#### 挑选合适的 level-i 用于放置新的`SST`
+
+PickLevelForMemTableOutput
 
 #### 将新`SST`的`MetaData`记录到`VersionEdit`中

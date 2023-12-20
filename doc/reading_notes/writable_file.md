@@ -16,7 +16,7 @@ class LEVELDB_EXPORT WritableFile {
     virtual Status Append(const Slice& data) = 0;
     // 关闭文件
     virtual Status Close() = 0;
-    // 将缓冲区里的数据 flush 到文件，并清空缓冲区
+    // 将缓冲区里的数据 flush 到文件(内核缓冲区)，并清空缓冲区
     virtual Status Flush() = 0;
     // 将内核缓冲区里的数据刷盘
     virtual Status Sync() = 0;
@@ -187,5 +187,116 @@ Status WriteUnbuffered(const char* data, size_t size) {
         size -= write_result;
     }
     return Status::OK();
+}
+```
+
+### PosixWritableFile::Flush()
+
+`PosixWritableFile::Flush()`的实现就是调用`FlushBuffer()`方法，将缓冲区的数据 flush 到文件，并清空缓冲区。
+
+```c++
+Status Flush() override { return FlushBuffer(); }
+```
+### PosixWritableFile::Sync()
+
+`Sync`方法的作用是将缓冲区里的数据 flush 到文件(其实是 flush 到内核缓冲区)，并将内核缓冲区里的数据刷盘。
+
+如果该 WritableFile 是个 manifest 文件，那么在将该 manifest 文件刷盘前，还需要先将该 manifest 文件所在的目录刷盘，确保其所在目录已经先创建出来了，然后再对该 manifest 文件进行刷盘。
+
+```c++
+Status Sync() override {
+    // 将 manifest 文件所在的目录刷盘。
+    // 如果当前 WritableFile 是个 manifest 文件，那么在将该 manifest 刷盘前，
+    // 需要先将该 manifest 文件所在的目录刷盘，确保其所在目录已经先创建出来了，
+    // 然后再刷盘该 manifest 文件。
+    Status status = SyncDirIfManifest();
+    if (!status.ok()) {
+        return status;
+    }
+
+    // 将缓冲区里的数据 flush 到文件(其实是内核缓冲区中)
+    status = FlushBuffer();
+    if (!status.ok()) {
+        return status;
+    }
+
+    // call 系统调用 ::fsync 将内核缓冲区中的数据刷盘
+    return SyncFd(fd_, filename_);
+}
+```
+
+### PosixWritableFile::SyncDirIfManifest()
+
+`SyncDirIfManifest`方法的作用是将 manifest 文件所在的目录刷盘。
+
+```c++
+Status SyncDirIfManifest() {
+    Status status;
+    // 如果不是 manifest 文件的话，直接返回 OK
+    if (!is_manifest_) {
+        return status;
+    }
+
+    // 打开 manifest 文件所在的目录，获取其文件描述符
+    int fd = ::open(dirname_.c_str(), O_RDONLY | kOpenBaseFlags);
+    if (fd < 0) {
+        status = PosixError(dirname_, errno);
+    } else {
+        // 将该目录刷盘
+        status = SyncFd(fd, dirname_);
+        ::close(fd);
+    }
+    return status;
+}
+```
+
+### PosixWritableFile::SyncFd(int fd, const std::string& filename)
+
+`SyncFd`方法的作用是将文件手动刷盘，确保数据已经持久化到磁盘，而不是停留在内核缓冲区中等待内核刷盘。
+
+```c++
+static Status SyncFd(int fd, const std::string& fd_path) {
+#if HAVE_FULLFSYNC
+    // 在 macOS 和 iOS 平台上，仅仅只是使用 fsync() 并不能保证数据在掉电后的持久化，
+    // 需要配合 fcntl(F_FULLFSYNC)。
+    if (::fcntl(fd, F_FULLFSYNC) == 0) {
+        return Status::OK();
+    }
+#endif  // HAVE_FULLFSYNC
+
+    // 如果平台支持 fdatasync 的话，就用 fdatasync 刷盘，
+    // 否则的话就用 fsync 刷盘。
+    // fdatasync 与 fsync 的区别在于，fdatasync 只会刷盘文件的 data 部分，
+    // 而 fsync 会刷盘文件的 data 部分和 meta 部分。meta 部分包含一些文件信息，
+    // 如文件大小，文件更新时间等。
+    // fdatasync 比 fsync 更高效。
+#if HAVE_FDATASYNC
+    bool sync_success = ::fdatasync(fd) == 0;
+#else
+    bool sync_success = ::fsync(fd) == 0;
+#endif  // HAVE_FDATASYNC
+
+    if (sync_success) {
+        return Status::OK();
+    }
+    return PosixError(fd_path, errno);
+}
+```
+
+### PosixWritableFile::Close()
+
+`Close`方法的作用是关闭文件。它首先将缓冲区的数据写入到文件，然后关闭文件。
+
+```c++
+Status Close() override {
+    // 关闭前先把缓冲区里的数据 flush 到文件
+    Status status = FlushBuffer();
+    // 通过系统调用 ::close 关闭文件
+    const int close_result = ::close(fd_);
+    if (close_result < 0 && status.ok()) {
+        status = PosixError(filename_, errno);
+    }
+    fd_ = -1;
+    return status;
 }
 ```

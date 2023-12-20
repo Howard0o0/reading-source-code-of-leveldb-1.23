@@ -307,7 +307,9 @@ class PosixWritableFile final : public WritableFile {
     }
 
     Status Close() override {
+        // 关闭前先把缓冲区里的数据 flush 到文件
         Status status = FlushBuffer();
+        // 通过系统调用 ::close 关闭文件
         const int close_result = ::close(fd_);
         if (close_result < 0 && status.ok()) {
             status = PosixError(filename_, errno);
@@ -324,16 +326,22 @@ class PosixWritableFile final : public WritableFile {
         // This needs to happen before the manifest file is flushed to disk, to
         // avoid crashing in a state where the manifest refers to files that are
         // not yet on disk.
+        // 将 manifest 文件所在的目录刷盘。
+        // 如果当前 WritableFile 是个 manifest 文件，那么在将该 manifest 刷盘前，
+        // 需要先将该 manifest 文件所在的目录刷盘，确保其所在目录已经先创建出来了，
+        // 然后再刷盘该 manifest 文件。
         Status status = SyncDirIfManifest();
         if (!status.ok()) {
             return status;
         }
 
+        // 将缓冲区里的数据 flush 到文件(其实是内核缓冲区中)
         status = FlushBuffer();
         if (!status.ok()) {
             return status;
         }
 
+        // call 系统调用 ::fsync 将内核缓冲区中的数据刷盘
         return SyncFd(fd_, filename_);
     }
 
@@ -373,14 +381,17 @@ class PosixWritableFile final : public WritableFile {
 
     Status SyncDirIfManifest() {
         Status status;
+        // 如果不是 manifest 文件的话，直接返回 OK
         if (!is_manifest_) {
             return status;
         }
 
+        // 打开 manifest 文件所在的目录，获取其文件描述符
         int fd = ::open(dirname_.c_str(), O_RDONLY | kOpenBaseFlags);
         if (fd < 0) {
             status = PosixError(dirname_, errno);
         } else {
+            // 将该目录刷盘
             status = SyncFd(fd, dirname_);
             ::close(fd);
         }
@@ -399,11 +410,19 @@ class PosixWritableFile final : public WritableFile {
         // failures. fcntl(F_FULLFSYNC) is required for that purpose. Some
         // filesystems don't support fcntl(F_FULLFSYNC), and require a fallback
         // to fsync().
+        // 在 macOS 和 iOS 平台上，仅仅只是使用 fsync() 并不能保证数据在掉电后的持久化，
+        // 需要配合 fcntl(F_FULLFSYNC)。
         if (::fcntl(fd, F_FULLFSYNC) == 0) {
             return Status::OK();
         }
 #endif  // HAVE_FULLFSYNC
 
+        // 如果该平台支持 fdatasync 的话，就用 fdatasync 刷盘，
+        // 否则的话就用 fsync 刷盘。
+        // fdatasync 与 fsync 的区别在于，fdatasync 只会刷盘文件的 data 部分，
+        // 而 fsync 会刷盘文件的 data 部分和 meta 部分。meta 部分包含一些文件信息，
+        // 如文件大小，文件更新时间等。
+        // fdatasync 比 fsync 更高效。
 #if HAVE_FDATASYNC
         bool sync_success = ::fdatasync(fd) == 0;
 #else
