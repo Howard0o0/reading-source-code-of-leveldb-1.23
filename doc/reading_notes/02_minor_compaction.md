@@ -8,6 +8,8 @@
     - [将`MemTable`落盘成`SST`文件](#将memtable落盘成sst文件)
       - [将`MemTable`生成一个新的`SST`文件:](#将memtable生成一个新的sst文件)
       - [挑选合适的 level-i 用于放置新的`SST`](#挑选合适的-level-i-用于放置新的sst)
+        - [Version::OverlapInLevel 的实现](#versionoverlapinlevel-的实现)
+        - [Version::GetOverlappingInputs 的实现](#versiongetoverlappinginputs-的实现)
       - [将新`SST`的`MetaData`记录到`VersionEdit`中](#将新sst的metadata记录到versionedit中)
 
 
@@ -558,6 +560,161 @@ class LEVELDB_EXPORT WritableFile {
 
 #### 挑选合适的 level-i 用于放置新的`SST`
 
-PickLevelForMemTableOutput
+`Version::PickLevelForMemTableOutput(const Slice& smallest_user_key, const Slice& largest_user_key)` 负责挑选合适的 level-i 用于放置新的`SST`。
+
+其中， `smallest_user_key` 是 New SST 里最小的 User Key， `largest_user_key` 是 New SST 里最大的 User Key。
+
+它首先检查 New SST 的 key 范围是否与 Level-0 层有重叠，如果没有，就尝试将 New SST 放置在更高的层级，直到遇到与 New SST 的 key 范围有重叠的层级，或者 New SST 的 key 范围与下两层的 SST 文件重叠的总大小超过阈值。
+
+```c++
+int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
+                                        const Slice& largest_user_key) {
+    int level = 0;
+
+    // 如果 New SST 和 level 0 层有重叠的话，那只能选择 level 0 层。
+    // 否则的话，就继续往更大的 level 找，直到找到第一个和 New SST 有重叠的 level。
+    if (!OverlapInLevel(0, &smallest_user_key, &largest_user_key)) {
+        
+        InternalKey start(smallest_user_key, kMaxSequenceNumber, kValueTypeForSeek);
+        InternalKey limit(largest_user_key, 0, static_cast<ValueType>(0));
+        std::vector<FileMetaData*> overlaps;
+
+        // kMaxMemCompactLevel 默认为 2。
+        while (level < config::kMaxMemCompactLevel) {
+            // 如果高一层的 level+1 与 New SST 有重叠了，就不要继续试探了，
+            // 使用 level 层就行。
+            if (OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)) {
+                break;
+            }
+
+            // 如果 level+2 层存在，还要检查下 New SST 和 level+2 层
+            // 重叠的大小是否超过了阈值。
+            if (level + 2 < config::kNumLevels) {
+                // 检查 New SST 与 level+2 层的哪些 SST 有重叠，
+                // 这些重叠的 SST 存储在 std::vector<FileMetaData*> overlaps 中。
+                GetOverlappingInputs(level + 2, &start, &limit, &overlaps);
+
+                // 计算 level+2 中，与 New SST 重叠的 SST 大小总和。
+                // 如果这个总和超过了阈值，就不能使用 level+1，只能使用 level。
+                const int64_t sum = TotalFileSize(overlaps);
+                if (sum > MaxGrandParentOverlapBytes(vset_->options_)) {
+                    break;
+                }
+            }
+            level++;
+        }
+    }
+    return level;
+}
+```
+
+##### Version::OverlapInLevel 的实现
+
+```c++
+bool Version::OverlapInLevel(int level, const Slice* smallest_user_key,
+                             const Slice* largest_user_key) {
+    return SomeFileOverlapsRange(vset_->icmp_, (level > 0), files_[level], smallest_user_key, largest_user_key);
+}
+```
+
+`OverlapInLevel` 的逻辑甩给了 `SomeFileOverlapsRange`，那我们得继续看`SomeFileOverlapsRange`的实现。
+
+```c++
+bool SomeFileOverlapsRange(const InternalKeyComparator& icmp, bool disjoint_sorted_files,
+                           const std::vector<FileMetaData*>& files, const Slice* smallest_user_key,
+                           const Slice* largest_user_key) {
+    // 通过比较 User Key 来判断是否存在 overlap，
+    // 所以要用到 User Comparator。
+    const Comparator* ucmp = icmp.user_comparator();
+
+    // 对于 level-0 的 sst files，需要将输入 files 挨个遍历一遍，
+    // 看下是否存在 overlap。
+    if (!disjoint_sorted_files) {
+        
+        for (size_t i = 0; i < files.size(); i++) {
+            const FileMetaData* f = files[i];
+
+            // 如果 smallest_user_key 比 file 的所有 key 都要大，
+            // 或者 largest_user_key 比 file 的所有 key 都要小，
+            // 就没有 overlap。
+            if (AfterFile(ucmp, smallest_user_key, f) || BeforeFile(ucmp, largest_user_key, f)) {
+                // No overlap
+            } else {
+                return true;  // Overlap
+            }
+        }
+        return false;
+    }
+
+    // index 表示可能与 [smallest_user_key, largest_user_key] 有 overlap 的 files[index]
+    uint32_t index = 0;
+    // 如果 smallest_user_key 为 nullptr，表示 smallest_user_key 为无限小，
+    // 那唯一有可能与 [smallest_user_key, largest_user_key] 有 overlap 的 file 为 files[0]。
+    if (smallest_user_key != nullptr) {
+        // smallest_user_key 不为 nullptr的话，就用二分查找的方式找到第一个
+        // 有可能与 [small_user_key, largest_user_key] 有 overlap 的 file[index]。
+
+        // 至于为什么这里要用将 small_key 的 seq 设为 kMaxSequenceNumber，
+        // 因为两个 InternalKey 之间的排序规则是:
+        //   - User Key 升序
+        //   - Sequence Number 降序
+        //   - Value Type 降序
+        // 所以 InternalKey small_key(*smallest_user_key, kMaxSequenceNumber, kValueTypeForSeek) 
+        // 在面对一个携带相同 User Key 的 InternalKey 时，small_key 一定排在前面。
+        InternalKey small_key(*smallest_user_key, kMaxSequenceNumber, kValueTypeForSeek);
+
+        // 二分查找，找到第一个 largest_key >= small_key 的 files[index]。
+        index = FindFile(icmp, files, small_key.Encode());
+    }
+
+    // 如果 index 越界了，说明 smallest_user_key 比 files 中所有的 key 都要大，
+    // 一定不存在 overlap。
+    if (index >= files.size()) {
+        // beginning of range is after all files, so no overlap.
+        return false;
+    }
+
+    // 已知 smallest_user_key <= files[index].largest，
+    // 如果 largest_user_key 比 files[index].smallest 还要小的话，
+    // 也一定不存在 overlap。
+    // 否则一定有 overlap。
+    return !BeforeFile(ucmp, largest_user_key, files[index]);
+}
+```
+
+现在我们明白了`Version::OverlapInLevel`的逻辑了，对`FindFile(icmp, files, small_key.Encode())`的实现感兴趣的同学，可以继续看下`FindFile`是如何以**二分查找**的形式找到第一个**可能**与`[smallest_user_key, largest_user_key]`有重叠的`SST`文件的。
+
+
+```c++
+int FindFile(const InternalKeyComparator& icmp, const std::vector<FileMetaData*>& files,
+             const Slice& key) {
+    // 二分查找的左边界
+    uint32_t left = 0;
+    // 二分查找的右边界
+    uint32_t right = files.size();
+    while (left < right) {
+        // 计算中间位置
+        uint32_t mid = (left + right) / 2;
+        const FileMetaData* f = files[mid];
+        if (icmp.InternalKeyComparator::Compare(f->largest.Encode(), key) < 0) {
+            // Key at "mid.largest" is < "target".  Therefore all
+            // files at or before "mid" are uninteresting.
+            // 如果 files[mid].largest < key，
+            // 那么 files[0] ~ files[mid] 都不是我们要找的,
+            // 可以直接排除 [0,mid] 的范围
+            left = mid + 1;
+        } else {
+            // Key at "mid.largest" is >= "target".  Therefore all files
+            // after "mid" are uninteresting.
+            // 如果 files[mid].largest >= key，
+            // 那么可以排除 [mid+1, right] 的范围
+            right = mid;
+        }
+    }
+    return right;
+}
+```
+
+##### Version::GetOverlappingInputs 的实现
 
 #### 将新`SST`的`MetaData`记录到`VersionEdit`中
