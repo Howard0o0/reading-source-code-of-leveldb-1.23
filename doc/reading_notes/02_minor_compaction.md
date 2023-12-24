@@ -717,4 +717,78 @@ int FindFile(const InternalKeyComparator& icmp, const std::vector<FileMetaData*>
 
 ##### Version::GetOverlappingInputs 的实现
 
+`Version::GetOverlappingInputs(int level, const InternalKey* begin, const InternalKey* end, std::vector<FileMetaData*>* inputs)` 用于检测 level 层中的哪些 SST 文件与 [begin,end] 有重叠，将他们存储在 inputs 中返回。
+
+比如 [begin,end] 为 [10, 15]，而 level 层中某个 SST 文件的范围为 [5, 20]，那么这个 SST 文件就与 [begin,end] 有重叠，需要将其加入`inputs`中。
+
+值得注意的是，对于 level-0 层的 SST 文件，可能会互相重叠，所以需要检查下是否存在间接重叠的情况: 
+
+[begin,end] 与 files_[0][i] 直接重叠，files[0][i] 和 files_[0][i-1] 直接重叠，导致 [begin,end] 与 files_[0][i-1] 虽然不直接重叠，但是间接重叠。
+
+简介重叠也算重叠，files_[0][i-1] 也需要加入到`inputs`中。
+
+```c++
+// 在 level 层中查找有哪些 SST 文件与 [begin,end] 有重叠，将他们存储在 inputs 中返回。
+void Version::GetOverlappingInputs(int level, const InternalKey* begin, const InternalKey* end,
+                                   std::vector<FileMetaData*>* inputs) {
+    assert(level >= 0);
+    assert(level < config::kNumLevels);
+    inputs->clear();
+
+    // 将 [begin, end] 转为 [user_key_begin, user_key_end]
+    Slice user_begin, user_end;
+    if (begin != nullptr) {
+        user_begin = begin->user_key();
+    }
+    if (end != nullptr) {
+        user_end = end->user_key();
+    }
+
+    // 获取 user key comparator
+    const Comparator* user_cmp = vset_->icmp_.user_comparator();
+
+    // 遍历 level 层中的所有 SST 文件
+    for (size_t i = 0; i < files_[level].size();) {
+
+        // 获取当前 SST 文件的 FileMetaData，
+        // 提取出当前 SST 文件的 smallest user key 和 largest user key。
+        FileMetaData* f = files_[level][i++];
+        const Slice file_start = f->smallest.user_key();
+        const Slice file_limit = f->largest.user_key();
+
+        if (begin != nullptr && user_cmp->Compare(file_limit, user_begin) < 0) {
+            // 当前 SST 的 largest_user_key 比 user_begin 还要小，可以跳过当前 SST 了
+        } else if (end != nullptr && user_cmp->Compare(file_start, user_end) > 0) {
+            // 当前 SST 的 smallest_user_key 比 user_end 还要大，可以跳过当前 SST 了
+        } else {
+            // 当前 SST 和 [user_begin, user_end] 有交集，将其加入 inputs 中
+            inputs->push_back(f);
+
+            
+            if (level == 0) {
+                // level-0 层的 SST 文件可能会互相重叠，所以需要检查下是否存在间接重叠的情况: 
+                //   [user_begin, user_end] 与 files_[0][i] 直接重叠，files[0][i] 和 files_[0][i-1] 直接重叠，
+                //   导致 [user_begin, user_end] 与 files_[0][i-1] 虽然不直接重叠，但是间接重叠。
+                // 间接重叠，也算 overlap。 
+                // 所以对于 level-0，只要发现了 [user_begin, user_end] 与 files_[0][i] 有重叠，就需要
+                // 更新 user_begin 和 user_end，将 i 置为 0，从 files_[0][0] 开始重新检测。
+                if (begin != nullptr && user_cmp->Compare(file_start, user_begin) < 0) {
+                    // 如果 files_[0] 与 [user_begin, user_end] 有重叠，并且 files_[0] 的 smallest_user_key 比 user_begin 还要小，
+                    // 需要把 user_begin 更新为 files_[0] 的 smallest_user_key，从头开始重新检测 overlap。
+                    user_begin = file_start;
+                    inputs->clear();
+                    i = 0;
+                } else if (end != nullptr && user_cmp->Compare(file_limit, user_end) > 0) {
+                    // 如果 files_[0] 与 [user_begin, user_end] 有重叠，并且 files_[0] 的 largest_user_key 比 user_end 还要大，
+                    // 需要把 user_end 更新为 files_[0] 的 largest_user_key，从头开始重新检测 overlap。
+                    user_end = file_limit;
+                    inputs->clear();
+                    i = 0;
+                }
+            }
+        }
+    }
+}
+```
+
 #### 将新`SST`的`MetaData`记录到`VersionEdit`中
