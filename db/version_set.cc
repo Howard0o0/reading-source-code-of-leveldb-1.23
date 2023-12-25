@@ -444,13 +444,17 @@ bool Version::UpdateStats(const GetStats& stats) {
 }
 
 bool Version::RecordReadSample(Slice internal_key) {
+
+    // 从 internal_key 中提取出 user_key
     ParsedInternalKey ikey;
     if (!ParseInternalKey(internal_key, &ikey)) {
         return false;
     }
 
     struct State {
+        // stats 记录第一个包含 user_key的 SST 文件
         GetStats stats;  // Holds first matching file
+        // matches 记录包含 user_key 的 SST 文件的个数
         int matches;
 
         static bool Match(void* arg, int level, FileMetaData* f) {
@@ -468,12 +472,15 @@ bool Version::RecordReadSample(Slice internal_key) {
 
     State state;
     state.matches = 0;
+    // 遍历所有与 user_key 有重叠的 SST 文件，调用 State::Match 方法。
     ForEachOverlapping(ikey.user_key, internal_key, &state, &State::Match);
 
     // Must have at least two matches since we want to merge across
     // files. But what if we have a single file that contains many
     // overwrites and deletions?  Should we have another mechanism for
     // finding such files?
+    // 如果至少有 2 个 SST 包含了 user_key，调用 UpdateStats 更新一下
+    // 第一个 SST 的 allowed_seeks。
     if (state.matches >= 2) {
         // 1MB cost is about 1 seek (see comment in Builder::Apply).
         return UpdateStats(state.stats);
@@ -873,17 +880,27 @@ void VersionSet::AppendVersion(Version* v) {
 }
 
 Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
+    // has_log_number_ 表示该 edit 是否有对应的 WAL
+    // log_number_ 为 edit 对应的 WAL 编号
     if (edit->has_log_number_) {
+        // 如果该 edit 是否有对应的 WAL，
+        // 检查其 WAL 编号是否合法。
         assert(edit->log_number_ >= log_number_);
         assert(edit->log_number_ < next_file_number_);
     } else {
+        // 如果该 edit 没有对应的 WAL，
+        // 那么就使用当前的 WAL 编号。
         edit->SetLogNumber(log_number_);
     }
 
+    // 如果该 edit 没有对应的 prev WAL 编号，
+    // 那么就使用当前的 prev WAL 编号。
     if (!edit->has_prev_log_number_) {
         edit->SetPrevLogNumber(prev_log_number_);
     }
 
+    // 将 next_file_number_ 和 last_sequence_ 保存到 edit 中，
+    // 这样 apply edit 的时候，new version 才能包含这两个值。
     edit->SetNextFile(next_file_number_);
     edit->SetLastSequence(last_sequence_);
 

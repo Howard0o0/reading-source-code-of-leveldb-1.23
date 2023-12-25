@@ -74,19 +74,33 @@ class Version {
     // Append to *iters a sequence of iterators that will
     // yield the contents of this Version when merged together.
     // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+    // 创建一个 iters，可以用来遍历当前版本的所有 key-value。
     void AddIterators(const ReadOptions&, std::vector<Iterator*>* iters);
 
+    // 查找一个给定 key 的 value。
+    // 如果该 key 存在，则返回 OK，并且在 stats 中记录一些查找信息，比如
+    // key 所在的文件、level 等。
     Status Get(const ReadOptions&, const LookupKey& key, std::string* val, GetStats* stats);
 
     // Adds "stats" into the current state.  Returns true if a new
     // compaction may need to be triggered, false otherwise.
     // REQUIRES: lock is held
+    // 该方法通常在 Get 操作后被调用，stats 中包含了 Get 操作所访问的 
+    // SST 文件的 MetaData，MetaData 中有个成员 allowed_seeks, 表示该 SST
+    // 允许被访问的次数。每调用一次 UpdateStats(stats)，会将 allowed_seeks 减一，
+    // 当 allowed_seeks 为 0 时，会返回 true，
+    // 表示该 SST 的访问频率过高，需要进行 Compaction。
     bool UpdateStats(const GetStats& stats);
 
     // Record a sample of bytes read at the specified internal key.
     // Samples are taken approximately once every config::kReadBytesPeriod
     // bytes.  Returns true if a new compaction may need to be triggered.
     // REQUIRES: lock is held
+    // 通过 Iterator 每读取 config::kReadBytesPeriod 个字节，
+    // 就会对当前 key 调用一次 RecordReadSample()，
+    // 记录 key 的访问频率。
+    // RecordReadSample(key) 会遍历所有与 key 有 overlap 的 SST，
+    // 所以重叠的 SST 不止一个，就对第一个 SST 调用一次 UpdateStats。
     bool RecordReadSample(Slice key);
 
     // Reference count management (so Versions do not disappear out from
@@ -94,6 +108,8 @@ class Version {
     void Ref();
     void Unref();
 
+    // 给定一个范围 [begin, end]，返回在 level 层所有与之有 overlap 的 SST 文件，
+    // 记录到 inputs 中。
     void GetOverlappingInputs(int level,
                               const InternalKey* begin,  // nullptr means before all keys
                               const InternalKey* end,    // nullptr means after all keys
@@ -104,15 +120,20 @@ class Version {
     // smallest_user_key==nullptr represents a key smaller than all the DB's
     // keys. largest_user_key==nullptr represents a key largest than all the
     // DB's keys.
+    // 检查 level 层是否有 SST 与 [smallest_user_key, largest_user_key] 有 overlap
     bool OverlapInLevel(int level, const Slice* smallest_user_key, const Slice* largest_user_key);
 
     // Return the level at which we should place a new memtable compaction
     // result that covers the range [smallest_user_key,largest_user_key].
+    // 给定 [smallest_user_key, largest_user_key] 代表一个 MemTable， 
+    // 返回一个 level，用于将该 MemTable 落盘为 SST。
     int PickLevelForMemTableOutput(const Slice& smallest_user_key, const Slice& largest_user_key);
 
+    // 获取指定 level 上的 SST 数量。
     int NumFiles(int level) const { return files_[level].size(); }
 
     // Return a human readable string that describes this version's contents.
+    // 用可视化的方式打印 Version 的内容。
     std::string DebugString() const;
 
    private:

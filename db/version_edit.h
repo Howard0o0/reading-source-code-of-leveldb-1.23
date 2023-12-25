@@ -65,13 +65,18 @@ class VersionEdit {
     // Add the specified file at the specified number.
     // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
     // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
+    // 将一个 SST (的 MetaData)添加到 VersionEdit 中
     void AddFile(int level, uint64_t file, uint64_t file_size, const InternalKey& smallest,
                  const InternalKey& largest) {
+        // 创建一个 FileMetaData 对象，
+        // 将 number, file_size, smallest, largest 赋值给 FileMetaData 对象
         FileMetaData f;
         f.number = file;
         f.file_size = file_size;
         f.smallest = smallest;
         f.largest = largest;
+
+        // 将该 FileMetaData 对象添加到 VersionEdit::new_files_ 中
         new_files_.push_back(std::make_pair(level, f));
     }
 

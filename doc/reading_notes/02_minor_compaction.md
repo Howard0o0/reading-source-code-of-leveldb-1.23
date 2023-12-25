@@ -10,7 +10,10 @@
       - [挑选合适的 level-i 用于放置新的`SST`](#挑选合适的-level-i-用于放置新的sst)
         - [Version::OverlapInLevel 的实现](#versionoverlapinlevel-的实现)
         - [Version::GetOverlappingInputs 的实现](#versiongetoverlappinginputs-的实现)
-      - [将新`SST`的`MetaData`记录到`VersionEdit`中](#将新sst的metadata记录到versionedit中)
+      - [将新 SST 的 MetaData 记录到`VersionEdit`中](#将新-sst-的-metadata-记录到versionedit中)
+    - [构建新的 Version ，包含 New SST 的 MetaData 等信息](#构建新的-version-包含-new-sst-的-metadata-等信息)
+      - [VersionSet::LogAndApply(VersionEdit\* edit, port::Mutex\* mu) 的实现](#versionsetlogandapplyversionedit-edit-portmutex-mu-的实现)
+    - [清理不再需要的文件](#清理不再需要的文件)
 
 
 LevelDB中有两种`Compaction`，一种是`Compact MemTable`，另一种是`Compact SST`。`Compact MemTable`是将`MemTable`落盘为SST文件，`Compact SST`是将多个SST文件合并为一个SST文件。
@@ -608,6 +611,10 @@ int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
 }
 ```
 
+`OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)`的实现可移步参考[TODO]()。
+
+`GetOverlappingInputs(level + 2, &start, &limit, &overlaps)`的实现可移步参考[TODO]()。
+
 ##### Version::OverlapInLevel 的实现
 
 ```c++
@@ -791,4 +798,90 @@ void Version::GetOverlappingInputs(int level, const InternalKey* begin, const In
 }
 ```
 
-#### 将新`SST`的`MetaData`记录到`VersionEdit`中
+#### 将新 SST 的 MetaData 记录到`VersionEdit`中
+
+`VersionEdit::AddFile(int level, uint64_t file, uint64_t file_size, const InternalKey& smallest, const InternalKey& largest)`用于将一个 SST (的 MetaData)添加到 VersionEdit 中。
+
+其 MetaData 包括：
+
+- level, SST 所在的 level
+- file, SST 的编号
+- file_size, SST 的大小
+- smallest, SST 的最小 key
+- largest, SST 的最大 key
+
+```c++
+// 将一个 SST (的 MetaData)添加到 VersionEdit 中
+void AddFile(int level, uint64_t file, uint64_t file_size, const InternalKey& smallest,
+                const InternalKey& largest) {
+    // 创建一个 FileMetaData 对象，
+    // 将 number, file_size, smallest, largest 赋值给 FileMetaData 对象
+    FileMetaData f;
+    f.number = file;
+    f.file_size = file_size;
+    f.smallest = smallest;
+    f.largest = largest;
+
+    // 将该 FileMetaData 对象添加到 VersionEdit::new_files_ 中
+    new_files_.push_back(std::make_pair(level, f));
+}
+```
+
+### 构建新的 Version ，包含 New SST 的 MetaData 等信息
+
+现在我们回到`DBImpl::CompactMemTable`，继续分析`DBImpl::CCompactMemTable`里为 New SST 构建 Version 的过程。
+
+`DBImpl::CompactMemTable`里，通过`WriteLevel0Table(imm_, &edit, base)`将 MemTable 落盘成了 SST 文件，并将新的 SST 文件的 MetaData 记录到`edit`中，此时`edit`中就包含了 New SST 的 MetaData 。
+
+然后我们就可以通过`versions_->LogAndApply(&edit, &mutex_)`创建一个 New Version，该 New Version 会被追加到 VersionSet `DBImpl::versions_`中，并将该 New Version 设置为当前 Version。
+
+```c++
+void DBImpl::CompactMemTable() {
+    
+    // ...
+
+    // 创建一个 VersionEdit 对象，用于记录从当前版本到新版本的所有变化。
+    // 在 CompactMemTable 中主要是记录新生成的 SSTable 文件的 MetaData.
+    VersionEdit edit;
+
+    // 获取当前版本。
+    // LevelDB 维护了一个 VersionSet，是一个 version 的链表。
+    // 将VersionEdit Apply 到 base 上，就可以得到一个新的 version.
+    Version* base = versions_->current();
+
+    // ...
+
+    // 将 MemTable 保存成新的 SSTable 文件，
+    // 并将新的 SSTable 文件的 MetaData 记录到 edit 中。
+    Status s = WriteLevel0Table(imm_, &edit, base);
+
+    // ...
+
+    if (s.ok()) {
+        // SST构建成功，
+        // 把WAL相关信息记录到VersionEdit中。
+
+        // 新的SST创建好后，旧的WAL不再需要了，
+        // 所以设置为0
+        edit.SetPrevLogNumber(0);
+        // 设置新的SST对应的WAL编号
+        edit.SetLogNumber(logfile_number_);  // Earlier logs no longer needed
+
+        // 将VersionEdit应用到当前Version上，
+        // 产生一个新的Version，加入VersionSet中，
+        // 并将新的Version设置为当前Version。
+        s = versions_->LogAndApply(&edit, &mutex_);
+    }
+
+    // new version 构建完成
+    // ...
+}
+```
+
+#### VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) 的实现
+
+
+
+
+
+### 清理不再需要的文件
