@@ -315,16 +315,21 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
     const Comparator* ucmp = vset_->icmp_.user_comparator();
 
     // Search level-0 in order from newest to oldest.
+    // 遍历 level-0 中的 SST 文件，将与 user_key 有重叠的 SST 文件放到 tmp 中。
     std::vector<FileMetaData*> tmp;
     tmp.reserve(files_[0].size());
     for (uint32_t i = 0; i < files_[0].size(); i++) {
         FileMetaData* f = files_[0][i];
+        // 如果 user_key >= f->smallest.user_key() && user_key <= f->largest.user_key()，
+        // 将该 SST 文件放到 tmp 中。
         if (ucmp->Compare(user_key, f->smallest.user_key()) >= 0 &&
             ucmp->Compare(user_key, f->largest.user_key()) <= 0) {
             tmp.push_back(f);
         }
     }
     if (!tmp.empty()) {
+        // 将 tmp 里的 SST 按照从新到旧的顺序排序，
+        // 再遍历 tmp，挨个调用 func(arg, 0, tmp[i])。
         std::sort(tmp.begin(), tmp.end(), NewestFirst);
         for (uint32_t i = 0; i < tmp.size(); i++) {
             if (!(*func)(arg, 0, tmp[i])) {
@@ -334,18 +339,23 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
     }
 
     // Search other levels.
+    // 到其他 level 中寻找与 user_key 有重叠的 SST 文件，调用 func(arg, level, f)。
     for (int level = 1; level < config::kNumLevels; level++) {
         size_t num_files = files_[level].size();
         if (num_files == 0) continue;
 
         // Binary search to find earliest index whose largest key >=
         // internal_key.
+        // 用二分查找的方式，在该 level 中找到第一个 largest_key >= internal_key 的 SST 文件。
         uint32_t index = FindFile(vset_->icmp_, files_[level], internal_key);
         if (index < num_files) {
             FileMetaData* f = files_[level][index];
             if (ucmp->Compare(user_key, f->smallest.user_key()) < 0) {
                 // All of "f" is past any data for user_key
+                // 如果 user_key < f->smallest.user_key()，说明 user_key 与 f 没有重叠，
             } else {
+                // user_key >= f->smallest.user_key()，user_key 与 f 有重叠，
+                // 调用 func(arg, level, f)。
                 if (!(*func)(arg, level, f)) {
                     return;
                 }
@@ -360,45 +370,87 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
     stats->seek_file_level = -1;
 
     struct State {
+        // Saver 结构体包含：
+        //   - SaverState state;：表示 Saver 的状态，可能的值包括 kNotFound、kFound、kDeleted、 kCorrupt
+        //   - const Comparator* ucmp;：user key comparator
+        //   - Slice user_key;：user key
+        //   - std::string* value;：用于存储找到的 value
         Saver saver;
+
+        // stats 用于记录 Get 操作的一些额外返回信息:
+        //   - key 所在 SST 的 MetaData
+        //   - key 所在 SST 的 level
         GetStats* stats;
+
+        // 一些影响读取 SST 的选项，比如是否要验证 checksums: options.verify_checksums
         const ReadOptions* options;
+
+        // k 所对应的 internal_key
         Slice ikey;
+
+        // 最后读取的 SST 文件
         FileMetaData* last_file_read;
+        // 最后读取的 SST 文件所在的 level
         int last_file_read_level;
 
+        // 包含了 leveldb 所有 version 的 VersionSet
         VersionSet* vset;
+
+        // 存储 Match 方法中调用 TableCache::Get 时返回的 Status
         Status s;
+        // 用于标识是否找到了 key
         bool found;
 
         static bool Match(void* arg, int level, FileMetaData* f) {
             State* state = reinterpret_cast<State*>(arg);
 
+            // 记录第一个被查找的 SST 文件，及其所在 level。
             if (state->stats->seek_file == nullptr && state->last_file_read != nullptr) {
                 // We have had more than one seek for this read.  Charge the 1st
                 // file.
+                // state->stats->seek_file == nullptr 表示第一个被查找的 SST 还没有被记录，
+                // state->last_file_read != nullptr 表示该轮 Match 不是第一次被调用。
                 state->stats->seek_file = state->last_file_read;
                 state->stats->seek_file_level = state->last_file_read_level;
             }
 
+            // 记录最后一个被查找的 SST 文件，及其所在 level。
             state->last_file_read = f;
             state->last_file_read_level = level;
 
+            // 借助 table_cache_ 在当前 SST 中查找 ikey，
+            // 如果查找到了，就调用 SaveValue(&state->saver, found_key, found_value) 方法，
+            // 将 found_value 存储到 state->saver.value 中。
             state->s = state->vset->table_cache_->Get(*state->options, f->number, f->file_size,
                                                       state->ikey, &state->saver, SaveValue);
+            
+            // 如果在当前 SST 中查找到 key 了，则设置 state->found 为 true，
+            // 并且返回 false，表示不需要继续到其他 SST 中查找了。
+            // 因为 Match 方法是依照 Latest SST 到 Oldest SST 的顺序遍历调用的，
+            // 如果在 Latest SST 中找到了目标 key，Older SST 中的 key 就是无效的旧值了。
             if (!state->s.ok()) {
                 state->found = true;
                 return false;
             }
+
+            // 如果在当前 SST 中查找 key 失败，需要根据失败的原因做进一步处理。
             switch (state->saver.state) {
                 case kNotFound:
+                    // 当前 SST 中没有找到 key，
+                    // 返回 true 表示继续到其他 SST 中查找。
                     return true;  // Keep searching in other files
                 case kFound:
+                    // 当前 SST 中找到了 key，但是处理过程中出错了，无法获取到对应的 value，
+                    // 返回 false 表示不需要继续到其他 SST 中查找了。
                     state->found = true;
                     return false;
                 case kDeleted:
+                    // 当前 SST 中找到了 key，但是 key 已经被删除了，
+                    // 返回 false 表示不需要继续到其他 SST 中查找了。
                     return false;
                 case kCorrupt:
+                    // 查找的过程中 crash 了，
+                    // 返回 false 表示不需要继续到其他 SST 中查找了。
                     state->s = Status::Corruption("corrupted key for ", state->saver.user_key);
                     state->found = true;
                     return false;
@@ -406,6 +458,7 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
 
             // Not reached. Added to avoid false compilation warnings of
             // "control reaches end of non-void function".
+            // 不会执行到这里，添加一个 return 只是为了避免编译器报错。
             return false;
         }
     };
@@ -425,6 +478,9 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
     state.saver.user_key = k.user_key();
     state.saver.value = value;
 
+    // 遍历所有与 user_key 有重叠的 SST 文件，
+    // 依照 Latest SST 到 Oldest SST 的顺序，挨个对每个 SST 调用 State::Match(&state, level, fileMetaData) 方法。
+    // 如果 State::Match 返回 true，则停止调用。
     ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
 
     return state.found ? state.s : Status::NotFound(Slice());

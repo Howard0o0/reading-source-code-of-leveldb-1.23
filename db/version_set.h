@@ -66,6 +66,9 @@ class Version {
     // Lookup the value for key.  If found, store it in *val and
     // return OK.  Else return a non-OK status.  Fills *stats.
     // REQUIRES: lock is not held
+    // GetStats 用于记录 Get 操作的一些额外返回信息:
+    //   - key 所在 SST 的 MetaData
+    //   - key 所在 SST 的 level
     struct GetStats {
         FileMetaData* seek_file;
         int seek_file_level;
@@ -77,7 +80,7 @@ class Version {
     // 创建一个 iters，可以用来遍历当前版本的所有 key-value。
     void AddIterators(const ReadOptions&, std::vector<Iterator*>* iters);
 
-    // 查找一个给定 key 的 value。
+    // 在指定版本中，查找一个给定 key 的 value。
     // 如果该 key 存在，则返回 OK，并且在 stats 中记录一些查找信息，比如
     // key 所在的文件、level 等。
     Status Get(const ReadOptions&, const LookupKey& key, std::string* val, GetStats* stats);
