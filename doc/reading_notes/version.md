@@ -222,9 +222,86 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
 
 ### Version::AddIterators(const ReadOptions&, std::vector<Iterator*>* iters)
 
+```c++
+void Version::AddIterators(const ReadOptions& options, std::vector<Iterator*>* iters) {
+    // 对于 level-0 的 SST，会有 SST 重叠的情况，所以需要每个 SST 的 iterator。
+    for (size_t i = 0; i < files_[0].size(); i++) {
+        iters->push_back(vset_->table_cache_->NewIterator(options, files_[0][i]->number,
+                                                          files_[0][i]->file_size));
+    }
+
+    // 对于 level > 0 的 SST，不会有 SST 重叠的情况，所以可以使用一个 ConcatenatingIterator，
+    // 就是将一个 level 上的所有 SST 的 iterator 拼接起来，作为一个 iterator 使用。
+    for (int level = 1; level < config::kNumLevels; level++) {
+        if (!files_[level].empty()) {
+            iters->push_back(NewConcatenatingIterator(options, level));
+        }
+    }
+}
+```
+
 ### Version::UpdateStats(const GetStats& stats)
 
+```c++
+bool Version::UpdateStats(const GetStats& stats) {
+    FileMetaData* f = stats.seek_file;
+    if (f != nullptr) {
+        // 将 SST 的 allowed_seeks 减 1，
+        // 当 allowed_seeks 减到 0 时，就将该 SST 加入到 compact 调度中。
+        f->allowed_seeks--;
+        if (f->allowed_seeks <= 0 && file_to_compact_ == nullptr) {
+            file_to_compact_ = f;
+            file_to_compact_level_ = stats.seek_file_level;
+            return true;
+        }
+    }
+    return false;
+}
+```
+
 ### Version::RecordReadSample(Slice key)
+
+```c++
+bool Version::RecordReadSample(Slice internal_key) {
+
+    // 从 internal_key 中提取出 user_key
+    ParsedInternalKey ikey;
+    if (!ParseInternalKey(internal_key, &ikey)) {
+        return false;
+    }
+
+    struct State {
+        // stats 记录第一个包含 user_key的 SST 文件
+        GetStats stats;  // Holds first matching file
+        // matches 记录包含 user_key 的 SST 文件的个数
+        int matches;
+
+        static bool Match(void* arg, int level, FileMetaData* f) {
+            State* state = reinterpret_cast<State*>(arg);
+            state->matches++;
+            if (state->matches == 1) {
+                // Remember first match.
+                state->stats.seek_file = f;
+                state->stats.seek_file_level = level;
+            }
+            // We can stop iterating once we have a second match.
+            return state->matches < 2;
+        }
+    };
+
+    State state;
+    state.matches = 0;
+    // 遍历所有与 user_key 有重叠的 SST 文件，调用 State::Match 方法。
+    ForEachOverlapping(ikey.user_key, internal_key, &state, &State::Match);
+
+    // 如果至少有 2 个 SST 包含了 user_key，调用 UpdateStats 更新一下
+    // 第一个 SST 的 allowed_seeks。
+    if (state.matches >= 2) {
+        return UpdateStats(state.stats);
+    }
+    return false;
+}
+```
 
 ### Version::GetOverlappingInputs(int level, const InternalKey* begin, const InternalKey* end, std::vector<FileMetaData*>* inputs)
 
@@ -411,7 +488,100 @@ int FindFile(const InternalKeyComparator& icmp, const std::vector<FileMetaData*>
 
 ### Version::PickLevelForMemTableOutput(const Slice& smallest_user_key, const Slice& largest_user_key)
 
+`Version::PickLevelForMemTableOutput(const Slice& smallest_user_key, const Slice& largest_user_key)` 负责挑选合适的 level-i 用于放置新的`SST`。
+
+其中， `smallest_user_key` 是 New SST 里最小的 User Key， `largest_user_key` 是 New SST 里最大的 User Key。
+
+它首先检查 New SST 的 key 范围是否与 Level-0 层有重叠，如果没有，就尝试将 New SST 放置在更高的层级，直到遇到与 New SST 的 key 范围有重叠的层级，或者 New SST 的 key 范围与下两层的 SST 文件重叠的总大小超过阈值。
+
+```c++
+int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
+                                        const Slice& largest_user_key) {
+    int level = 0;
+
+    // 如果 New SST 和 level 0 层有重叠的话，那只能选择 level 0 层。
+    // 否则的话，就继续往更大的 level 找，直到找到第一个和 New SST 有重叠的 level。
+    if (!OverlapInLevel(0, &smallest_user_key, &largest_user_key)) {
+        
+        InternalKey start(smallest_user_key, kMaxSequenceNumber, kValueTypeForSeek);
+        InternalKey limit(largest_user_key, 0, static_cast<ValueType>(0));
+        std::vector<FileMetaData*> overlaps;
+
+        // kMaxMemCompactLevel 默认为 2。
+        while (level < config::kMaxMemCompactLevel) {
+            // 如果高一层的 level+1 与 New SST 有重叠了，就不要继续试探了，
+            // 使用 level 层就行。
+            if (OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)) {
+                break;
+            }
+
+            // 如果 level+2 层存在，还要检查下 New SST 和 level+2 层
+            // 重叠的大小是否超过了阈值。
+            if (level + 2 < config::kNumLevels) {
+                // 检查 New SST 与 level+2 层的哪些 SST 有重叠，
+                // 这些重叠的 SST 存储在 std::vector<FileMetaData*> overlaps 中。
+                GetOverlappingInputs(level + 2, &start, &limit, &overlaps);
+
+                // 计算 level+2 中，与 New SST 重叠的 SST 大小总和。
+                // 如果这个总和超过了阈值，就不能使用 level+1，只能使用 level。
+                const int64_t sum = TotalFileSize(overlaps);
+                if (sum > MaxGrandParentOverlapBytes(vset_->options_)) {
+                    break;
+                }
+            }
+            level++;
+        }
+    }
+    return level;
+}
+```
+
 ### Version::DebugString()
+
+返回的 DebugString 格式如下:
+
+```
+--- level 1 ---
+{文件编号}:{文件大小}[smallest_key .. largest_key]
+...
+{文件编号}:{文件大小}[smallest_key .. largest_key]
+--- level 2 ---
+{文件编号}:{文件大小}[smallest_key .. largest_key]
+...
+{文件编号}:{文件大小}[smallest_key .. largest_key]
+--- level N ---
+{文件编号}:{文件大小}[smallest_key .. largest_key]
+...
+{文件编号}:{文件大小}[smallest_key .. largest_key]
+```
+
+```c++
+std::string Version::DebugString() const {
+    std::string r;
+    for (int level = 0; level < config::kNumLevels; level++) {
+        // 对于每个层级，首先添加一个表示层级的字符串，例如:
+        //   "--- level 1 ---"。
+        // 对于该层级中的每个文件，添加一个描述文件的字符串: 
+        //   "{文件编号}:{文件大小}[smallest_key .. largest_key]"
+        r.append("--- level ");
+        AppendNumberTo(&r, level);
+        r.append(" ---\n");
+        const std::vector<FileMetaData*>& files = files_[level];
+        for (size_t i = 0; i < files.size(); i++) {
+            r.push_back(' ');
+            AppendNumberTo(&r, files[i]->number);
+            r.push_back(':');
+            AppendNumberTo(&r, files[i]->file_size);
+            r.append("[");
+            r.append(files[i]->smallest.DebugString());
+            r.append(" .. ");
+            r.append(files[i]->largest.DebugString());
+            r.append("]\n");
+        }
+    }
+    return r;
+}
+```
 
 ### Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg, bool (\*func)(void\*, int, FileMetaData\*))
 

@@ -10,7 +10,6 @@
       - [挑选合适的 level-i 用于放置新的`SST`](#挑选合适的-level-i-用于放置新的sst)
       - [将新 SST 的 MetaData 记录到`VersionEdit`中](#将新-sst-的-metadata-记录到versionedit中)
     - [构建新的 Version ，包含 New SST 的 MetaData 等信息](#构建新的-version-包含-new-sst-的-metadata-等信息)
-      - [VersionSet::LogAndApply(VersionEdit\* edit, port::Mutex\* mu) 的实现](#versionsetlogandapplyversionedit-edit-portmutex-mu-的实现)
     - [清理不再需要的文件](#清理不再需要的文件)
 
 
@@ -179,7 +178,7 @@ void DBImpl::MaybeScheduleCompaction() {
 
 我们现在关心的是`MemTable Compaction`。但现在还是没有看到是怎么触发`MemTable Compaction`的，需要继续查看`DBImpl::BGWork`的实现细节。
 
-对`DBImpl::BGWork`的实现感兴趣的同学，可以移步学习[大白话解析LevelDB: Env 跨平台运行环境的封装](TODO)
+对`DBImpl::BGWork`的实现感兴趣的同学，可以移步参考[TODO](TODO)
 
 ```c++
 void DBImpl::BGWork(void* db) {
@@ -561,57 +560,7 @@ class LEVELDB_EXPORT WritableFile {
 
 #### 挑选合适的 level-i 用于放置新的`SST`
 
-`Version::PickLevelForMemTableOutput(const Slice& smallest_user_key, const Slice& largest_user_key)` 负责挑选合适的 level-i 用于放置新的`SST`。
-
-其中， `smallest_user_key` 是 New SST 里最小的 User Key， `largest_user_key` 是 New SST 里最大的 User Key。
-
-它首先检查 New SST 的 key 范围是否与 Level-0 层有重叠，如果没有，就尝试将 New SST 放置在更高的层级，直到遇到与 New SST 的 key 范围有重叠的层级，或者 New SST 的 key 范围与下两层的 SST 文件重叠的总大小超过阈值。
-
-```c++
-int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
-                                        const Slice& largest_user_key) {
-    int level = 0;
-
-    // 如果 New SST 和 level 0 层有重叠的话，那只能选择 level 0 层。
-    // 否则的话，就继续往更大的 level 找，直到找到第一个和 New SST 有重叠的 level。
-    if (!OverlapInLevel(0, &smallest_user_key, &largest_user_key)) {
-        
-        InternalKey start(smallest_user_key, kMaxSequenceNumber, kValueTypeForSeek);
-        InternalKey limit(largest_user_key, 0, static_cast<ValueType>(0));
-        std::vector<FileMetaData*> overlaps;
-
-        // kMaxMemCompactLevel 默认为 2。
-        while (level < config::kMaxMemCompactLevel) {
-            // 如果高一层的 level+1 与 New SST 有重叠了，就不要继续试探了，
-            // 使用 level 层就行。
-            if (OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)) {
-                break;
-            }
-
-            // 如果 level+2 层存在，还要检查下 New SST 和 level+2 层
-            // 重叠的大小是否超过了阈值。
-            if (level + 2 < config::kNumLevels) {
-                // 检查 New SST 与 level+2 层的哪些 SST 有重叠，
-                // 这些重叠的 SST 存储在 std::vector<FileMetaData*> overlaps 中。
-                GetOverlappingInputs(level + 2, &start, &limit, &overlaps);
-
-                // 计算 level+2 中，与 New SST 重叠的 SST 大小总和。
-                // 如果这个总和超过了阈值，就不能使用 level+1，只能使用 level。
-                const int64_t sum = TotalFileSize(overlaps);
-                if (sum > MaxGrandParentOverlapBytes(vset_->options_)) {
-                    break;
-                }
-            }
-            level++;
-        }
-    }
-    return level;
-}
-```
-
-`OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)`的实现可移步参考[TODO]()。
-
-`GetOverlappingInputs(level + 2, &start, &limit, &overlaps)`的实现可移步参考[TODO]()。
+`Version::PickLevelForMemTableOutput(const Slice& smallest_user_key, const Slice& largest_user_key)` 负责挑选合适的 level-i 用于放置新的`SST`。 具体实现移步参考[大白话解析LevelDB: Version](https://blog.csdn.net/sinat_38293503/article/details/135217578#VersionPickLevelForMemTableOutputconst_Slice_smallest_user_key_const_Slice_largest_user_key_473)
 
 #### 将新 SST 的 MetaData 记录到`VersionEdit`中
 
@@ -693,10 +642,6 @@ void DBImpl::CompactMemTable() {
 }
 ```
 
-#### VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) 的实现
-
-
-
-
+`versions_->LogAndApply(&edit, &mutex_)`的具体实现可移步[TODO](TODO)
 
 ### 清理不再需要的文件

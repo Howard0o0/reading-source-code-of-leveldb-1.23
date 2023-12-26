@@ -263,6 +263,7 @@ Iterator* Version::NewConcatenatingIterator(const ReadOptions& options, int leve
 
 void Version::AddIterators(const ReadOptions& options, std::vector<Iterator*>* iters) {
     // Merge all level zero files together since they may overlap
+    // 对于 level-0 的 SST，会有 SST 重叠的情况，所以需要每个 SST 的 iterator。
     for (size_t i = 0; i < files_[0].size(); i++) {
         iters->push_back(vset_->table_cache_->NewIterator(options, files_[0][i]->number,
                                                           files_[0][i]->file_size));
@@ -271,6 +272,8 @@ void Version::AddIterators(const ReadOptions& options, std::vector<Iterator*>* i
     // For levels > 0, we can use a concatenating iterator that sequentially
     // walks through the non-overlapping files in the level, opening them
     // lazily.
+    // 对于 level > 0 的 SST，不会有 SST 重叠的情况，所以可以使用一个 ConcatenatingIterator，
+    // 就是将一个 level 上的所有 SST 的 iterator 拼接起来，作为一个 iterator 使用。
     for (int level = 1; level < config::kNumLevels; level++) {
         if (!files_[level].empty()) {
             iters->push_back(NewConcatenatingIterator(options, level));
@@ -489,6 +492,8 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
 bool Version::UpdateStats(const GetStats& stats) {
     FileMetaData* f = stats.seek_file;
     if (f != nullptr) {
+        // 将 SST 的 allowed_seeks 减 1，
+        // 当 allowed_seeks 减到 0 时，就将该 SST 加入到 compact 调度中。
         f->allowed_seeks--;
         if (f->allowed_seeks <= 0 && file_to_compact_ == nullptr) {
             file_to_compact_ = f;
@@ -684,6 +689,10 @@ std::string Version::DebugString() const {
         //   --- level 1 ---
         //   17:123['a' .. 'd']
         //   20:43['e' .. 'g']
+        // 对于每个层级，首先添加一个表示层级的字符串，例如:
+        //   "--- level 1 ---"。
+        // 对于该层级中的每个文件，添加一个描述文件的字符串: 
+        //   "{文件编号}:{文件大小}[smallest_key .. largest_key]"
         r.append("--- level ");
         AppendNumberTo(&r, level);
         r.append(" ---\n");
