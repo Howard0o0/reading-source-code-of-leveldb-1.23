@@ -163,7 +163,7 @@ void DBImpl::MaybeScheduleCompaction() {
         // 上面的三个条件至少有一个命中了，把 background_compaction_scheduled_ 标志位设置为 true，
         // 以免重复安排后台线程执行 Compaction。
         background_compaction_scheduled_ = true;
-        // 将 BGWork 方法加入线程池中执行。
+        // 将 BGWork 方法加入任务队列中执行。
         // 具体需要执行什么类型的Compaction，BGWork 里再做判断。
         env_->Schedule(&DBImpl::BGWork, this);
     }

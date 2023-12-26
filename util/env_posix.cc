@@ -43,6 +43,12 @@ namespace {
 int g_open_read_only_file_limit = -1;
 
 // Up to 1000 mmap regions for 64-bit binaries; none for 32-bit.
+// mmap 的默认最大数量限制取决于平台是 64-bit 还是 32-bit:
+// - 对于 64-bit 的平台，mmap 的最大数量限制为 1000。
+// - 对于 32-bit 的平台，mmap 的最大数量限制为 0。
+// 在 32-bit 平台上，LevelDB 将 kDefaultMmapLimit 设置为 0 的原因主要与地址空间的限制有关。
+// 在 32-bit 的系统中，整个地址空间（包括用户空间和内核空间）只有 4GB，其中用户空间通常只有 2GB 或 3GB。
+// 这意味着可供 mmap 使用的地址空间相对较小。
 constexpr const int kDefaultMmapLimit = (sizeof(void*) >= 8) ? 1000 : 0;
 
 // Can be set using EnvPosixTestHelper::SetReadOnlyMMapLimit().
@@ -535,6 +541,7 @@ class PosixEnv : public Env {
    public:
     PosixEnv();
     ~PosixEnv() override {
+        // PosixEnv 是通过 std::aligned_storage 构造的，不会被析构。
         static const char msg[] = "PosixEnv singleton destroyed. Unsupported behavior!\n";
         std::fwrite(msg, 1, sizeof(msg), stderr);
         std::abort();
@@ -790,16 +797,23 @@ int MaxMmaps() { return g_mmap_limit; }
 // Return the maximum number of read-only files to keep open.
 int MaxOpenFiles() {
     if (g_open_read_only_file_limit >= 0) {
+        // 如果 g_open_read_only_file_limit 是个有效值，大于等于 0，
+        // 则 g_open_read_only_file_limit 就表示最大可同时打开的文件数量。
         return g_open_read_only_file_limit;
     }
+    
+    // 通过系统调用 ::getrlimit 获取系统的文件描述符最大数量限制。
     struct ::rlimit rlim;
     if (::getrlimit(RLIMIT_NOFILE, &rlim)) {
         // getrlimit failed, fallback to hard-coded default.
+        // 如果 ::getrlimit 系统调用失败，那么就使用一个固定值 50。
         g_open_read_only_file_limit = 50;
     } else if (rlim.rlim_cur == RLIM_INFINITY) {
+        // 如果 ::getrlimit 系统调用返回的是无限制，那么就使用 int 类型的最大值，2^32 - 1。
         g_open_read_only_file_limit = std::numeric_limits<int>::max();
     } else {
         // Allow use of 20% of available file descriptors for read-only files.
+        // 如果 ::getrlimit 系统调用返回的是个有限值，那么取该值的 20%。
         g_open_read_only_file_limit = rlim.rlim_cur / 5;
     }
     return g_open_read_only_file_limit;
@@ -807,6 +821,11 @@ int MaxOpenFiles() {
 
 }  // namespace
 
+// background_work_cv_ 用于任务队列的生产者-消费者同步。当任务队列为空时，
+// 消费者会调用 background_work_cv_.Wait() 方法休眠直至生产者唤醒自己。
+// started_background_thread_ 表示消费者线程是否已经启动。
+// mmap_limit_ 表示可同时进行 mmap 的 region 数量限制。
+// fd_limit_ 表示可同时打开的文件数量限制。
 PosixEnv::PosixEnv()
     : background_work_cv_(&background_work_mutex_),
       started_background_thread_(false),
@@ -879,12 +898,28 @@ template <typename EnvType>
 class SingletonEnv {
    public:
     SingletonEnv() {
+        // NDEBUG 宏表示 NO DEBUG，表示 Release 模式
 #if !defined(NDEBUG)
+        // 在调试模式下，将 env_initialized_ 标记为 true，表示已经初始化过了。
+        // 有些全局变量需要在 SingletonEnv 初始化前就设置好，因为 SingletonEnv
+        // 初始化的过程中需要用到这些全局变量，比如 g_open_read_only_file_limit。
+        // env_initialized_ 的作用是用来在 UT 中检查是否有在初始化全局变量前
+        // 就把 SingletonEnv 初始化了:
+        //     // 检查 SingletonEnv 此时是否已经初始化了
+        //     PosixDefaultEnv::AssertEnvNotInitialized();
+        //     // 设着好 g_open_read_only_file_limit 后再初始化 env
+        //     g_open_read_only_file_limit = limit;
+        //     env = Env::Default();
+        //     // 此时 env 一定是基于指定的 g_open_read_only_file_limit 初始化的
+        //     // 此时若 UT 出现错误，就可以排除是 env 提前初始化导致的问题
         env_initialized_.store(true, std::memory_order::memory_order_relaxed);
 #endif  // !defined(NDEBUG)
+        // static_assert 是在编译期间检查， assert 是在运行期间检查
         static_assert(sizeof(env_storage_) >= sizeof(EnvType), "env_storage_ will not fit the Env");
         static_assert(alignof(decltype(env_storage_)) >= alignof(EnvType),
                       "env_storage_ does not meet the Env's alignment needs");
+        // 使用 placement new 的方式，
+        // 在 env_storage_ 空间上原地构造一个 EnvType 对象。
         new (&env_storage_) EnvType();
     }
     ~SingletonEnv() = default;
@@ -892,8 +927,10 @@ class SingletonEnv {
     SingletonEnv(const SingletonEnv&) = delete;
     SingletonEnv& operator=(const SingletonEnv&) = delete;
 
+    //  返回在 env_storage_ 空间上原地构造出来的 Env 对象
     Env* env() { return reinterpret_cast<Env*>(&env_storage_); }
 
+    // 仅供 UT 测试使用
     static void AssertEnvNotInitialized() {
 #if !defined(NDEBUG)
         assert(!env_initialized_.load(std::memory_order::memory_order_relaxed));
@@ -901,8 +938,26 @@ class SingletonEnv {
     }
 
    private:
+    // 使用 std::aligned_storage 来创建一个足够大并且正确对齐的内存空间 env_storage_，
+    // 用于存放 EnvType 类型的对象。
+    // 这里使用 std::aligned_storage 的目的是为了延迟构造 env_storage_。
+    // 如果写成 EnvType env_storage_ 的话，那么 env_storage_ 会在 SingletonEnv 的构造函数
+    // 执行之前，就进行初始化了。也就是先初始化 env_storage_ 然后
+    // 再执行 env_initialized_.store(true, std::memory_order::memory_order_relaxed)。
+    // 但此处我们需要先执行 env_initialized_.store(true, std::memory_order::memory_order_relaxed)，
+    // 再构造 env_storage_。
+    //
+    // 个人感觉写成 EnvType* env_storage_ 会不会更简单些？一样可以延迟构造 env_storage_。
+    // std::aligned_storage 比 EnvType* 的好处是:
+    //   - 栈空间比堆空间的分配效率更高。
+    //     - std::aligned_storage 开辟的是一块栈空间，
+    //     - EnvType* 使用的是队空间。
+    //   - 对齐方式 
+    //     - std::aligned_storage 可以强制使用 alignof(EnvType) 的对齐方式
+    //     - EnvType* 的对齐方式取决于编译器，新版的编译器都会根据类型自动对齐，老编译器可能不会
     typename std::aligned_storage<sizeof(EnvType), alignof(EnvType)>::type env_storage_;
 #if !defined(NDEBUG)
+    // env_initialized_ 只用于 UT，Release 模式下不会使用到。
     static std::atomic<bool> env_initialized_;
 #endif  // !defined(NDEBUG)
 };
@@ -927,6 +982,7 @@ void EnvPosixTestHelper::SetReadOnlyMMapLimit(int limit) {
 }
 
 Env* Env::Default() {
+    // 定义一个单例的 PosixDefaultEnv 对象
     static PosixDefaultEnv env_container;
     return env_container.env();
 }
