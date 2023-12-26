@@ -215,6 +215,9 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
     }
 }
 
+// 这个方法的主要作用是进行垃圾收集，删除不再需要的文件，以释放磁盘空间。
+// 随着时间的推移，可能会生成大量的临时文件或者过时的版本文件，
+// 这些文件如果不及时删除，可能会占用大量的磁盘空间。
 void DBImpl::RemoveObsoleteFiles() {
     mutex_.AssertHeld();
 
@@ -225,45 +228,72 @@ void DBImpl::RemoveObsoleteFiles() {
     }
 
     // Make a set of all of the live files
+    // 将所有需要用到的 SST 文件编号都记录到 live 中。
+    //   - pending_outputs_: 正在进行 compaction 的 SST
+    //   - versions_->AddLiveFiles(&live): 所有 version 里的 SST 
     std::set<uint64_t> live = pending_outputs_;
     versions_->AddLiveFiles(&live);
 
+    // 获取 leveldb 目录下的所有文件名
     std::vector<std::string> filenames;
     env_->GetChildren(dbname_, &filenames);  // Ignoring errors on purpose
     uint64_t number;
     FileType type;
+
+    // 遍历 leveldb 目录下的所有文件，
+    // 把不再需要的文件记录到 files_to_delete 中。
     std::vector<std::string> files_to_delete;
     for (std::string& filename : filenames) {
+        // 对于每个文件名，都调用 ParseFileName 解析出文件编号和文件类型。
         if (ParseFileName(filename, &number, &type)) {
             bool keep = true;
             switch (type) {
                 case kLogFile:
+                    // number >= versions_->LogNumber()，
+                    // 表示这个 WAL 是最新或者未来可能需要的 WAL，
+                    // 需要保留。
+                    // number == versions_->PrevLogNumber()，
+                    // 表示这个日志文件是上一个日志文件，
+                    // 可能包含了一些还未被合并到 SST 文件的数据，也需要保留。
                     keep = ((number >= versions_->LogNumber()) ||
                             (number == versions_->PrevLogNumber()));
                     break;
                 case kDescriptorFile:
                     // Keep my manifest file, and any newer incarnations'
                     // (in case there is a race that allows other incarnations)
+                    // number >= versions_->ManifestFileNumber()，
+                    // 表示这个 MANIFEST 文件是最新或者未来可能需要的 MANIFEST 文件，
+                    // 需要保留。
                     keep = (number >= versions_->ManifestFileNumber());
                     break;
                 case kTableFile:
+                    // 之前已经将所需要的 SST 文件编号都记录到 live 中了，
+                    // 如果当前 SST 文件编号在 live 中不存在，就表示不再需要了。
                     keep = (live.find(number) != live.end());
                     break;
                 case kTempFile:
                     // Any temp files that are currently being written to must
                     // be recorded in pending_outputs_, which is inserted into
                     // "live"
+                    // 临时文件指正在进行 compaction 的 SST 文件，之前也已经提前
+                    // 记录到 live 中了。如果当前临时文件不存在 live 中，表示不再需要了。
                     keep = (live.find(number) != live.end());
                     break;
                 case kCurrentFile:
+                    // CURRENT 文件，需要一直保留。
                 case kDBLockFile:
+                    // 文件锁，用来防止多个进程同时打开同一个数据库的，需要一直保留。
                 case kInfoLogFile:
+                    // INFO 日志文件，需要一直保留。
                     keep = true;
                     break;
             }
 
             if (!keep) {
+                // 如果当前文件不需要保留了，将它加入到 files_to_delete 中，
+                // 后面再一起删除。
                 files_to_delete.push_back(std::move(filename));
+                // 如果被删除的文件是个 SST，还需要把它从 table_cache_ 中移除。
                 if (type == kTableFile) {
                     table_cache_->Evict(number);
                 }
@@ -276,6 +306,8 @@ void DBImpl::RemoveObsoleteFiles() {
     // While deleting all files unblock other threads. All files being deleted
     // have unique names which will not collide with newly created files and
     // are therefore safe to delete while allowing other threads to proceed.
+    // 这些需要被删除的文件，已经不会被访问到了。
+    // 所以在删除期间，可以先释放锁，让其他线程能够继续执行。
     mutex_.Unlock();
     for (const std::string& filename : files_to_delete) {
         env_->RemoveFile(dbname_ + "/" + filename);

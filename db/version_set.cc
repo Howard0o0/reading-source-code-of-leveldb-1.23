@@ -1327,6 +1327,7 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
     return result;
 }
 
+// 遍历所有的 Version，将所有 level 上的 SST 文件编号加入到 live 中
 void VersionSet::AddLiveFiles(std::set<uint64_t>* live) {
     for (Version* v = dummy_versions_.next_; v != &dummy_versions_; v = v->next_) {
         for (int level = 0; level < config::kNumLevels; level++) {
