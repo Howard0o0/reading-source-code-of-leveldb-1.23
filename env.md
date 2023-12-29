@@ -25,6 +25,16 @@
       - [PosixEnv::LockFile 如何保证不同线程之间只有一个线程能获得锁](#posixenvlockfile-如何保证不同线程之间只有一个线程能获得锁)
       - [PosixEnv::LockFile 如何保证不同进程之间只有一个进程能获得锁](#posixenvlockfile-如何保证不同进程之间只有一个进程能获得锁)
     - [PosixEnv::UnlockFile(FileLock\* lock)](#posixenvunlockfilefilelock-lock)
+    - [PosixEnv::Schedule(void (\*background\_work\_function)(void\* background\_work\_arg), void\* background\_work\_arg)](#posixenvschedulevoid-background_work_functionvoid-background_work_arg-void-background_work_arg)
+      - [PosixEnv::Schedule 的使用姿势](#posixenvschedule-的使用姿势)
+      - [PosixEnv::Schedule 的代码实现](#posixenvschedule-的代码实现)
+      - [PosixEnv::BackgroundThreadEntryPoint 消费者线程的执行逻辑](#posixenvbackgroundthreadentrypoint-消费者线程的执行逻辑)
+    - [PosixEnv::StartThread(void (\*thread\_main)(void\* thread\_main\_arg), void\* thread\_main\_arg)](#posixenvstartthreadvoid-thread_mainvoid-thread_main_arg-void-thread_main_arg)
+    - [PosixEnv::GetTestDirectory(std::string\* result)](#posixenvgettestdirectorystdstring-result)
+    - [PosixEnv::NewLogger(const std::string\& filename, Logger\*\* result)](#posixenvnewloggerconst-stdstring-filename-logger-result)
+      - [PosixLogger 的实现](#posixlogger-的实现)
+    - [PosixEnv::NowMicros()](#posixenvnowmicros)
+    - [PosixEnv::SleepForMicroseconds()](#posixenvsleepformicroseconds)
 
 
 Env 类在 LevelDB 中是一个抽象基类，它定义了一组虚拟方法，这些方法封装了所有与操作系统环境交互的操作。这包括文件操作（如打开、读取、写入、关闭文件），线程创建和同步操作（如互斥锁和条件变量），以及获取系统相关信息（如当前时间，或者某个文件的大小）等。
@@ -783,4 +793,235 @@ Status UnlockFile(FileLock* lock) override {
 }
 ```
 
+### PosixEnv::Schedule(void (\*background_work_function)(void\* background_work_arg), void\* background_work_arg)
 
+#### PosixEnv::Schedule 的使用姿势
+
+我们先看下`PosixEnv::Schedule`的参数，有两个，一个是`background_work_function`，另一个是`background_work_arg`。
+
+诶？那岂不是限制了`background_work_function`的参数只能有一个`void*`吗？
+
+如果我们有个函数`add`如下，如何传给`PosixEnv::Schedule`呢？
+
+```c++
+void add(int num1, int num2, int* sum) {
+    *sum = num1 + num2;
+}
+```
+
+首先，定义一个结构体来保存`add`函数的参数：
+
+```cpp
+struct AddArgs {
+    int a;
+    int b;
+    int* c;
+};
+```
+
+然后，将`add`函数包装一下：
+
+```cpp
+void addWrapper(void* arg) {
+    AddArgs* args = static_cast<AddArgs*>(arg);
+    add(args->a, args->b, args->c);
+}
+```
+
+此时我们就可以通过`PosixEnv::Schedule`来调用`addWrapper`函数，进而调用`add`了。
+
+```cpp
+int result;
+AddArgs args = {1, 2, &result};
+PosixEnv::Schedule(addWrapper, &args);
+```
+
+这样，当`PosixEnv::Schedule`在后台线程中调用`addWrapper`时，`addWrapper`会解包参数并调用`add`函数。
+
+#### PosixEnv::Schedule 的代码实现
+
+理解`PosixEnv::Schedule`的使用姿势后，我们可以来看下它的代码实现了。
+
+简单来说，`PosixEnv::Schedule`就是将`background_work_function`和`background_work_arg`打包成一个任务，然后将该任务放入任务队列`background_work_queue_`中，等待后台的消费者线程来执行。
+
+```c++
+void PosixEnv::Schedule(void (*background_work_function)(void* background_work_arg),
+                        void* background_work_arg) {
+    background_work_mutex_.Lock();
+
+    // 如果后台的消费者线程还没开启，就创建一个消费者线程。
+    if (!started_background_thread_) {
+        started_background_thread_ = true;
+        // 创建一个消费者线程，执行 PosixEnv::BackgroundThreadEntryPoint 方法。
+        // PosixEnv::BackgroundThreadEntryPoint 本质上是一个 while 循环，
+        // 不停的从任务队列 background_work_queue_ 中取出任务执行。
+        std::thread background_thread(PosixEnv::BackgroundThreadEntryPoint, this);
+        // 调用 detach 将 background_thread 与当前线程分离，放在后台运行。
+        background_thread.detach();
+    }
+
+    // 此处可能有点反直觉，在往任务队列中推入任务前，就先把消费者线程唤醒了？
+    // 不会的，此时只是先把信号发送出去了，但是 background_work_mutex_ 还没有释放，
+    // 消费者线程在拿到 background_work_mutex_ 之前，不会被唤醒。
+    if (background_work_queue_.empty()) {
+        background_work_cv_.Signal();
+    }
+
+    // 将 background_work_function 压入任务队列中，等待消费者线程执行。
+    background_work_queue_.emplace(background_work_function, background_work_arg);
+    background_work_mutex_.Unlock();
+}
+```
+
+#### PosixEnv::BackgroundThreadEntryPoint 消费者线程的执行逻辑
+
+我们可以继续看下`PosixEnv::BackgroundThreadEntryPoint`的实现，看下后台的消费者线程是如何从`background_work_queue_`中取出任务并执行的。
+
+```c++
+static void BackgroundThreadEntryPoint(PosixEnv* env) { env->BackgroundThreadMain(); }
+```
+
+OK，原来`PosixEnv::BackgroundThreadEntryPoint`只是把`PosixEnv::BackgroundThreadMain`包装了一下。
+
+那我们继续看`PosixEnv::BackgroundThreadMain`的实现。
+
+`PosixEnv::BackgroundThreadMain`就是在一个`while`里不停的从任务队列中取出目标任务，并执行。
+
+```c++
+void PosixEnv::BackgroundThreadMain() {
+    // 不停的从任务队列中取出任务并执行。
+    // 如果任务队列为空，那么就调用 background_work_cv_.Wait() 方法休眠，
+    // 等待 PosixEnv::Schedule 放入任务后唤醒自己。
+    while (true) {
+        // 先获得 background_work_mutex_
+        background_work_mutex_.Lock();
+
+        // 如果有多个消费者线程，可能会有惊群效应。
+        // 有多个线程同时等待并被唤醒，但只有一个线程能够成功地从队列中取出任务。
+        // 也有可能会有假唤醒(Spurious Wakeup)的情况，
+        // 加个 while 循环可以 cover 这种 case。
+        while (background_work_queue_.empty()) {
+            background_work_cv_.Wait();
+        }
+
+        // 加个 assert，防止 background_work_queue_ 为空时，
+        // 还继续往下走，出现不好 debug 的 coredump。
+        assert(!background_work_queue_.empty());
+
+        // 从任务队列中取出一个任务，其实就是执行函数和参数。
+        auto background_work_function = background_work_queue_.front().function;
+        void* background_work_arg = background_work_queue_.front().arg;
+        background_work_queue_.pop();
+
+        // 此时任务已经取出来了，可以先释放 background_work_mutex_ 了。
+        background_work_mutex_.Unlock();
+        // 执行任务函数。
+        background_work_function(background_work_arg);
+    }
+}
+```
+
+### PosixEnv::StartThread(void (\*thread_main)(void\* thread_main_arg), void\* thread_main_arg)
+
+`PosixEnv::StartThread`的实现很简单，起一个`std::thread`再`detach`就行。
+
+```c++
+void StartThread(void (*thread_main)(void* thread_main_arg), void* thread_main_arg) override {
+    std::thread new_thread(thread_main, thread_main_arg);
+    new_thread.detach();
+}
+```
+
+
+### PosixEnv::GetTestDirectory(std::string* result)
+
+`PosixEnv::GetTestDirectory`的作用是获取一个临时目录，用于 UT 测试。
+
+如果环境变量`TEST_TMPDIR`存在，就使用该环境变量的值。
+
+否则的话，使用`/tmp/leveltest-{有效用户ID}`作为测试目录。
+
+`::geteuid()`是一个Unix系统调用，它返回当前进程的有效用户ID。
+
+在Unix和类Unix系统中，每个进程都有一个实际用户ID和一个有效用户ID。实际用户ID是启动进程的用户的ID，而有效用户ID则决定了进程的权限。
+
+```c++
+Status GetTestDirectory(std::string* result) override {
+    const char* env = std::getenv("TEST_TMPDIR");
+    if (env && env[0] != '\0') {
+        // 如果环境变量 TEST_TMPDIR 存在，就使用该环境变量的值。
+        *result = env;
+    } else {
+        // 否则的话，使用 "/tmp/leveltest-{有效用户ID}" 作为测试目录。
+        char buf[100];
+        std::snprintf(buf, sizeof(buf), "/tmp/leveldbtest-%d", static_cast<int>(::geteuid()));
+        *result = buf;
+    }
+
+    // 创建该测试目录
+    CreateDir(*result);
+
+    return Status::OK();
+}
+```
+
+### PosixEnv::NewLogger(const std::string& filename, Logger** result)
+
+打开目标文件，创建一个`PosixLogger`对象。
+
+```c++
+Status NewLogger(const std::string& filename, Logger** result) override {
+    // 以追加的方式打开 LOG 文件
+    int fd = ::open(filename.c_str(), O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
+    if (fd < 0) {
+        *result = nullptr;
+        return PosixError(filename, errno);
+    }
+
+    // 通过 ::fdopen 将 fd 转换为 FILE*，
+    // 然后创建一个 PosixLogger 对象。
+    std::FILE* fp = ::fdopen(fd, "w");
+    if (fp == nullptr) {
+        ::close(fd);
+        *result = nullptr;
+        return PosixError(filename, errno);
+    } else {
+        *result = new PosixLogger(fp);
+        return Status::OK();
+    }
+}
+```
+
+#### PosixLogger 的实现
+
+
+
+```c++
+```
+
+### PosixEnv::NowMicros()
+
+通过系统调用`::gettimeofday`获取当前时间，再计算出当前微秒时间戳。
+
+```c++
+uint64_t NowMicros() override {
+    // 每秒有 1,000,000 微秒
+    static constexpr uint64_t kUsecondsPerSecond = 1000000;
+    struct ::timeval tv;
+    // 获得当前时间
+    ::gettimeofday(&tv, nullptr);
+    // 当前微秒时间戳 = 秒数 * 1,000,000 + 微秒数
+    return static_cast<uint64_t>(tv.tv_sec) * kUsecondsPerSecond + tv.tv_usec;
+}
+```
+
+### PosixEnv::SleepForMicroseconds()
+
+甩给`std::this_thread::sleep_for`
+
+```c++
+void SleepForMicroseconds(int micros) override {
+    // 甩给 std::this_thread::sleep_for
+    std::this_thread::sleep_for(std::chrono::microseconds(micros));
+}
+```

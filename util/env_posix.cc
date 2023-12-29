@@ -671,6 +671,7 @@ class PosixEnv : public Env {
     }
 
     Status CreateDir(const std::string& dirname) override {
+        // 如果目录已存在，测返回失败。
         if (::mkdir(dirname.c_str(), 0755) != 0) {
             return PosixError(dirname, errno);
         }
@@ -759,8 +760,13 @@ class PosixEnv : public Env {
     Status GetTestDirectory(std::string* result) override {
         const char* env = std::getenv("TEST_TMPDIR");
         if (env && env[0] != '\0') {
+            // 如果环境变量 TEST_TMPDIR 存在，就使用该环境变量的值。
             *result = env;
         } else {
+            // 否则的话，使用 "/tmp/leveltest-{有效用户ID}" 作为测试目录。
+            // ::geteuid()是一个Unix系统调用，它返回当前进程的有效用户ID。
+            // 在Unix和类Unix系统中，每个进程都有一个实际用户ID和一个有效用户ID。
+            // 实际用户ID是启动进程的用户的ID，而有效用户ID则决定了进程的权限。
             char buf[100];
             std::snprintf(buf, sizeof(buf), "/tmp/leveldbtest-%d", static_cast<int>(::geteuid()));
             *result = buf;
@@ -768,18 +774,22 @@ class PosixEnv : public Env {
 
         // The CreateDir status is ignored because the directory may already
         // exist.
+        // 创建该测试目录
         CreateDir(*result);
 
         return Status::OK();
     }
 
     Status NewLogger(const std::string& filename, Logger** result) override {
+        // 以追加的方式打开 LOG 文件
         int fd = ::open(filename.c_str(), O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
         if (fd < 0) {
             *result = nullptr;
             return PosixError(filename, errno);
         }
 
+        // 通过 ::fdopen 将 fd 转换为 FILE*，
+        // 然后创建一个 PosixLogger 对象。
         std::FILE* fp = ::fdopen(fd, "w");
         if (fp == nullptr) {
             ::close(fd);
@@ -792,13 +802,17 @@ class PosixEnv : public Env {
     }
 
     uint64_t NowMicros() override {
+        // 每秒有 1,000,000 微秒
         static constexpr uint64_t kUsecondsPerSecond = 1000000;
         struct ::timeval tv;
+        // 获得当前时间
         ::gettimeofday(&tv, nullptr);
+        // 当前微秒时间戳 = 秒数 * 1,000,000 + 微秒数
         return static_cast<uint64_t>(tv.tv_sec) * kUsecondsPerSecond + tv.tv_usec;
     }
 
     void SleepForMicroseconds(int micros) override {
+        // 甩给 std::this_thread::sleep_for
         std::this_thread::sleep_for(std::chrono::microseconds(micros));
     }
 
@@ -873,28 +887,35 @@ PosixEnv::PosixEnv()
       mmap_limiter_(MaxMmaps()),
       fd_limiter_(MaxOpenFiles()) {}
 
-/* Schedule 方法比较简单，只是将对应的任务函数和函数参数推入至工作队列中，由
- * BackgroundThreadMain() 方法取出任务并执行 */
+// 将 background_work_function 推入任务队列(background_work_queue_)中，
+// 等待消费者线程取出并执行。
 void PosixEnv::Schedule(void (*background_work_function)(void* background_work_arg),
                         void* background_work_arg) {
     background_work_mutex_.Lock();
 
     // Start the background thread, if we haven't done so already.
+    // 如果后台的消费者线程还没开启，就创建一个消费者线程。
     if (!started_background_thread_) {
         started_background_thread_ = true;
         /* 启动 Entry Point
          * 线程，本质上就是一个死循环，从任务队列中取出任务并执行 */
+        // 创建一个消费者线程，执行 PosixEnv::BackgroundThreadEntryPoint 方法。
+        // PosixEnv::BackgroundThreadEntryPoint 本质上是一个 while 循环，
+        // 不停的从任务队列 background_work_queue_ 中取出任务执行。
         std::thread background_thread(PosixEnv::BackgroundThreadEntryPoint, this);
-        /* 线程要么调用 detach() 和当前线程分离，要么调用 join()
-         * 方法等待其执行完毕 */
+        // 调用 detach 将 background_thread 与当前线程分离，放在后台运行。
         background_thread.detach();
     }
 
     // If the queue is empty, the background thread may be waiting for work.
+    // 此处可能有点反直觉，在往任务队列中推入任务前，就先把消费者线程唤醒了？
+    // 不会的，此时只是先把信号发送出去了，但是 background_work_mutex_ 还没有释放，
+    // 消费者线程在拿到 background_work_mutex_ 之前，不会被唤醒。
     if (background_work_queue_.empty()) {
         background_work_cv_.Signal();
     }
 
+    // 将 background_work_function 压入任务队列中，等待消费者线程执行。
     background_work_queue_.emplace(background_work_function, background_work_arg);
     background_work_mutex_.Unlock();
 }
@@ -903,20 +924,34 @@ void PosixEnv::Schedule(void (*background_work_function)(void* background_work_a
  * 中取出一个任务并执行，由于任务队列并没有最大数量限制，所以不需要
  * 在取出数据以后 notify 其它线程，一个很简易的实现 */
 void PosixEnv::BackgroundThreadMain() {
+    // 不停的从任务队列中取出任务并执行。
+    // 如果任务队列为空，那么就调用 background_work_cv_.Wait() 方法休眠，
+    // 等待 PosixEnv::Schedule 放入任务后唤醒自己。
     while (true) {
+        // 先获得 background_work_mutex_
         background_work_mutex_.Lock();
 
         // Wait until there is work to be done.
+        // 如果有多个消费者线程，可能会有惊群效应。
+        // 有多个线程同时等待并被唤醒，但只有一个线程能够成功地从队列中取出任务。
+        // 也有可能会有假唤醒(Spurious Wakeup)的情况，
+        // 加个 while 循环可以 cover 这种 case。
         while (background_work_queue_.empty()) {
             background_work_cv_.Wait();
         }
 
+        // 加个 assert，防止 background_work_queue_ 为空时，
+        // 还继续往下走，出现不好 debug 的 coredump。
         assert(!background_work_queue_.empty());
+
+        // 从任务队列中取出一个任务，其实就是执行函数和参数。
         auto background_work_function = background_work_queue_.front().function;
         void* background_work_arg = background_work_queue_.front().arg;
         background_work_queue_.pop();
 
+        // 此时任务已经取出来了，可以先释放 background_work_mutex_ 了。
         background_work_mutex_.Unlock();
+        // 执行任务函数。
         background_work_function(background_work_arg);
     }
 }
