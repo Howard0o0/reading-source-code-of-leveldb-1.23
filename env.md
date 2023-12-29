@@ -11,6 +11,20 @@
     - [PosixEnv 的构造函数](#posixenv-的构造函数)
     - [PosixEnv 的构造函数](#posixenv-的构造函数-1)
     - [PosixEnv::NewSequentialFile(const std::string\& filename, SequentialFile\*\* result)](#posixenvnewsequentialfileconst-stdstring-filename-sequentialfile-result)
+    - [PosixEnv::NewRandomAccessFile(const std::string\& filename, RandomAccessFile\*\* result)](#posixenvnewrandomaccessfileconst-stdstring-filename-randomaccessfile-result)
+    - [PosixEnv::NewWritableFile(const std::string\& fname, WritableFile\*\* result)](#posixenvnewwritablefileconst-stdstring-fname-writablefile-result)
+    - [PosixEnv::NewAppendableFile(const std::string\& fname, WritableFile\*\* result)](#posixenvnewappendablefileconst-stdstring-fname-writablefile-result)
+    - [PosixEnv::FileExists(const std::string\& filename)](#posixenvfileexistsconst-stdstring-filename)
+    - [PosixEnv::GetChildren(const std::string\& directory\_path, std::vectorstd::string\* result)](#posixenvgetchildrenconst-stdstring-directory_path-stdvectorstdstring-result)
+    - [PosixEnv::RemoveFile(const std::string\& fname)](#posixenvremovefileconst-stdstring-fname)
+    - [PosixEnv::CreateDir(const std::string\& dirname)](#posixenvcreatedirconst-stdstring-dirname)
+    - [PosixEnv::RemoveDir(const std::string\& dirname)](#posixenvremovedirconst-stdstring-dirname)
+    - [PosixEnv::GetFileSize(const std::string\& fname, uint64\_t\* file\_size)](#posixenvgetfilesizeconst-stdstring-fname-uint64_t-file_size)
+    - [PosixEnv::RenameFile(const std::string\& src, const std::string\& target)](#posixenvrenamefileconst-stdstring-src-const-stdstring-target)
+    - [PosixEnv::LockFile(const std::string\& fname, FileLock\*\* lock)](#posixenvlockfileconst-stdstring-fname-filelock-lock)
+      - [PosixEnv::LockFile 如何保证不同线程之间只有一个线程能获得锁](#posixenvlockfile-如何保证不同线程之间只有一个线程能获得锁)
+      - [PosixEnv::LockFile 如何保证不同进程之间只有一个进程能获得锁](#posixenvlockfile-如何保证不同进程之间只有一个进程能获得锁)
+    - [PosixEnv::UnlockFile(FileLock\* lock)](#posixenvunlockfilefilelock-lock)
 
 
 Env 类在 LevelDB 中是一个抽象基类，它定义了一组虚拟方法，这些方法封装了所有与操作系统环境交互的操作。这包括文件操作（如打开、读取、写入、关闭文件），线程创建和同步操作（如互斥锁和条件变量），以及获取系统相关信息（如当前时间，或者某个文件的大小）等。
@@ -42,8 +56,6 @@ class LEVELDB_EXPORT Env {
     //     char buffer[kBufferSize];
     //     Slice result;
     //     // 从 file 里读取 kBufferSize 个字节到 result 里
-    //     s = file->Read(kBufferSize, &result, buffer);
-    //     // 从上次读取的末尾位置开始，再从 file 里读取 kBufferSize 个字节到 result 里
     //     s = file->Read(kBufferSize, &result, buffer);
     virtual Status NewSequentialFile(const std::string& fname, SequentialFile** result) = 0;
 
@@ -428,5 +440,347 @@ int main() {
 但是该 demo 运行后，没有输出 "singleton destroyed."，说明 CC 对象没有被析构。
 
 ### PosixEnv::NewSequentialFile(const std::string& filename, SequentialFile** result)
+
+```c++
+Status NewSequentialFile(const std::string& filename, SequentialFile** result) override {
+    // 打开该文件，获取其文件描述符 fd。
+    int fd = ::open(filename.c_str(), O_RDONLY | kOpenBaseFlags);
+    if (fd < 0) {
+        *result = nullptr;
+        return PosixError(filename, errno);
+    }
+
+    // 创建一个 PosixSequentialFile 对象。
+    *result = new PosixSequentialFile(filename, fd);
+    return Status::OK();
+}
+```
+
+PosixSequentialFile 的实现可移步参考[TODO: Env 中 SequentialFile](TODO)
+
+
+### PosixEnv::NewRandomAccessFile(const std::string& filename, RandomAccessFile** result)
+
+```c++
+Status NewRandomAccessFile(const std::string& filename, RandomAccessFile** result) override {
+    *result = nullptr;
+    // 打开该文件，获取其文件描述符 fd。
+    int fd = ::open(filename.c_str(), O_RDONLY | kOpenBaseFlags);
+    if (fd < 0) {
+        return PosixError(filename, errno);
+    }
+
+    // 如果 mmap 的数量超出上限了，就跳过 mmap 创建一个 PosixRandomAccessFile 对象。
+    if (!mmap_limiter_.Acquire()) {
+        *result = new PosixRandomAccessFile(filename, fd, &fd_limiter_);
+        return Status::OK();
+    }
+
+    // mmap 的数量还没有超出限制，将该文件 mmap 到内存中，然后创建一个 PosixMmapReadableFile 对象。
+    uint64_t file_size;
+    Status status = GetFileSize(filename, &file_size);
+    if (status.ok()) {
+        void* mmap_base = ::mmap(/*addr=*/nullptr, file_size, PROT_READ, MAP_SHARED, fd, 0);
+        if (mmap_base != MAP_FAILED) {
+            *result = new PosixMmapReadableFile(filename, reinterpret_cast<char*>(mmap_base),
+                                                file_size, &mmap_limiter_);
+        } else {
+            status = PosixError(filename, errno);
+        }
+    }
+
+    // mmap 已经完成了，可以关闭文件释放 fd 了。
+    ::close(fd);
+    if (!status.ok()) {
+        // 如果 mmap 失败了，需要将 mmap_limiter 修正回来
+        mmap_limiter_.Release();
+    }
+    return status;
+}
+```
+
+PosixRandomAccessFile 的实现可移步参考[TODO: Env 中 RandomAccessFile](TODO)
+
+PosixMmapReadableFile 的实现可移步参考[TODO: Env 中 MmapReadableFile](TODO)
+
+### PosixEnv::NewWritableFile(const std::string& fname, WritableFile** result)
+
+```c++
+Status NewWritableFile(const std::string& filename, WritableFile** result) override {
+    // O_TRUNC: 如果文件已存在，则将其清空。
+    // O_WRONLY: 以只写方式打开文件。
+    // O_CREAT: 如果文件不存在，则创建文件。
+    // kOpenBaseFlags: 一些基本的 flags，比如 O_CLOEXEC。
+    int fd = ::open(filename.c_str(), O_TRUNC | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
+    if (fd < 0) {
+        *result = nullptr;
+        return PosixError(filename, errno);
+    }
+
+    // 创建一个 PosixWritableFile 对象
+    *result = new PosixWritableFile(filename, fd);
+    return Status::OK();
+}
+```
+
+PosixWritableFile 的实现可移步参考[TODO: Env 中 WritableFile](TODO)
+
+### PosixEnv::NewAppendableFile(const std::string& fname, WritableFile** result)
+
+```c++
+Status NewAppendableFile(const std::string& filename, WritableFile** result) override {
+    // 如果文件存在，则在原有文件的尾部追加内容。
+    int fd = ::open(filename.c_str(), O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
+    if (fd < 0) {
+        *result = nullptr;
+        return PosixError(filename, errno);
+    }
+
+    // 创建一个 PosixWritableFile 对象
+    *result = new PosixWritableFile(filename, fd);
+    return Status::OK();
+}
+```
+
+PosixWritableFile 的实现可移步参考[TODO: Env 中 WritableFile](TODO)
+
+### PosixEnv::FileExists(const std::string& filename)
+
+```c++
+bool FileExists(const std::string& filename) override {
+    // 甩给系统调用 ::access 判断文件是否存在。
+    return ::access(filename.c_str(), F_OK) == 0;
+}
+```
+
+### PosixEnv::GetChildren(const std::string& directory_path, std::vector<std::string>* result)
+
+`PosixEnv::GetChildren`没什么好说的，通过系统调用`::opendir`和`::readdir`获取目录下的文件名。
+
+```c++
+Status GetChildren(const std::string& directory_path,
+                    std::vector<std::string>* result) override {
+    result->clear();
+    // 使用 ::opendir 打开目录，获取目录描述符。
+    ::DIR* dir = ::opendir(directory_path.c_str());
+    if (dir == nullptr) {
+        return PosixError(directory_path, errno);
+    }
+    struct ::dirent* entry;
+    // 通过 ::readdir 迭代获取目录下的文件名。
+    while ((entry = ::readdir(dir)) != nullptr) {
+        result->emplace_back(entry->d_name);
+    }
+    ::closedir(dir);
+    return Status::OK();
+}
+```
+
+### PosixEnv::RemoveFile(const std::string& fname)
+
+`PosixEnv::RemoveFile`通过系统调用`::unlink`将该文件从文件系统的目录结构中移除，减少该文件的链接数。
+
+文件的内容不会立即从磁盘上删除。只有当所有打开该文件的文件描述符都被关闭后，文件系统才会释放与文件相关的资源。
+
+```c++
+Status RemoveFile(const std::string& filename) override {
+    // 一种基于引用计数的删除策略。
+    // 使用 ::unlink 将文件从文件系统的目录结构中移除，减少该文件的链接数。
+    // 当该文件的链接数降到零，即没有任何文件名指向该文件时，文件系统才会释放该文件占用的空间。
+    // 只有当所有打开该文件的文件描述符都被关闭后，文件系统才会释放与文件相关的资源。
+    if (::unlink(filename.c_str()) != 0) {
+        return PosixError(filename, errno);
+    }
+    return Status::OK();
+}
+```
+
+### PosixEnv::CreateDir(const std::string& dirname)
+
+没啥好说，包装了一下系统调用`::mkdir`。
+
+```c++
+Status CreateDir(const std::string& dirname) override {
+    if (::mkdir(dirname.c_str(), 0755) != 0) {
+        return PosixError(dirname, errno);
+    }
+    return Status::OK();
+}
+```
+
+### PosixEnv::RemoveDir(const std::string& dirname)
+
+没啥好说，包装了一下系统调用`::rmdir`。
+
+如果目录非空，则删除失败。
+
+```c++
+Status RemoveDir(const std::string& dirname) override {
+    if (::rmdir(dirname.c_str()) != 0) {
+        return PosixError(dirname, errno);
+    }
+    return Status::OK();
+}
+```
+
+### PosixEnv::GetFileSize(const std::string& fname, uint64_t* file_size)
+
+通过系统调用`::stat`获取文件信息，里面包含了文件的大小。
+
+```c++
+Status GetFileSize(const std::string& filename, uint64_t* size) override {
+    struct ::stat file_stat;
+    if (::stat(filename.c_str(), &file_stat) != 0) {
+        *size = 0;
+        return PosixError(filename, errno);
+    }
+    *size = file_stat.st_size;
+    return Status::OK();
+}
+```
+
+### PosixEnv::RenameFile(const std::string& src, const std::string& target)
+
+封装了一下`std::rename`。
+
+```c++
+Status RenameFile(const std::string& from, const std::string& to) override {
+    if (std::rename(from.c_str(), to.c_str()) != 0) {
+        return PosixError(from, errno);
+    }
+    return Status::OK();
+}
+```
+
+### PosixEnv::LockFile(const std::string& fname, FileLock** lock)
+
+`LockFile`的实现比较有意思，它保证了不同线程之间只能有一个线程能成功获得锁，并且不同进程之间，也只能有一个进程能成功获得锁。
+
+```c++
+Status LockFile(const std::string& filename, FileLock** lock) override {
+    *lock = nullptr;
+
+    // 先获得目标文件的描述符
+    int fd = ::open(filename.c_str(), O_RDWR | O_CREAT | kOpenBaseFlags, 0644);
+    if (fd < 0) {
+        return PosixError(filename, errno);
+    }
+
+    // 在多线程层面，获得该文件的锁
+    if (!locks_.Insert(filename)) {
+        ::close(fd);
+        return Status::IOError("lock " + filename, "already held by process");
+    }
+
+    // 在多进程层面，获得该文件的锁
+    if (LockOrUnlock(fd, true) == -1) {
+        int lock_errno = errno;
+        ::close(fd);
+        locks_.Remove(filename);
+        return PosixError("lock " + filename, lock_errno);
+    }
+
+    // 构造一个 PosixFileLock 对象返回。
+    *lock = new PosixFileLock(fd, filename);
+    return Status::OK();
+}
+```
+
+#### PosixEnv::LockFile 如何保证不同线程之间只有一个线程能获得锁
+
+先说如何确保不同线程之间只能有一个线程能成功获得锁。
+
+`locks_.Insert(filename)`如果执行成功，该线程就会获得`filename`的锁。其他线程再执行`locks_.Insert(filename)`的时候，就会失败。
+
+`locks_`的类型是`PosixLockTable locks_;`，我们来看下`PosixLockTable`的实现。
+
+```c++
+class PosixLockTable {
+   public:
+    bool Insert(const std::string& fname) LOCKS_EXCLUDED(mu_) {
+        mu_.Lock();
+        // 往 std::set 中插入重复元素的话，会失败。
+        // 利用 std::set 的去重特性，
+        // 如果 fname 已经在 locked_files_ 中了，那么就返回 false。
+        bool succeeded = locked_files_.insert(fname).second;
+        mu_.Unlock();
+        return succeeded;
+    }
+    void Remove(const std::string& fname) LOCKS_EXCLUDED(mu_) {
+        mu_.Lock();
+        locked_files_.erase(fname);
+        mu_.Unlock();
+    }
+
+   private:
+    port::Mutex mu_;
+    std::set<std::string> locked_files_ GUARDED_BY(mu_);
+};
+```
+
+`PosixLockTable`利用的是`std::set`的去重特性，维护一个`std::set<std::string> locked_files_`，用于存放已经被锁住的文件名。
+
+线程 A 调用`Insert(fname)`将`fname`放入`locked_files_`中后，线程 B 再调用`Insert(fname)`时，由于`fname`已经在`locked_files_`中了，此时线程 B 的`Insert(fname)`会失败。
+
+#### PosixEnv::LockFile 如何保证不同进程之间只有一个进程能获得锁
+
+在多进程层面，是通过`LockOrUnlock(fd, true)`实现进程锁的。
+
+那我们来看下`LockOrUnlock`的实现。
+
+```c++
+int LockOrUnlock(int fd, bool lock) {
+    // errno 是一个全局变量，用于存储最近一次系统调用的错误号
+    errno = 0;
+
+    // 定义一个 flock 结构体
+    struct ::flock file_lock_info;
+    std::memset(&file_lock_info, 0, sizeof(file_lock_info));
+
+    // 设置加锁|解锁
+    file_lock_info.l_type = (lock ? F_WRLCK : F_UNLCK);
+    // 设置锁的起始位置为文件的开头
+    file_lock_info.l_whence = SEEK_SET;
+    // 设置锁的起始位置为 l_whence + 0
+    file_lock_info.l_start = 0;
+    // 设置锁的长度为 0，表示锁住整个文件
+    file_lock_info.l_len = 0;  // Lock/unlock entire file.
+
+    // 调用系统调用 ::fcntl 进行 加锁|解锁 操作
+    return ::fcntl(fd, F_SETLK, &file_lock_info);
+}
+```
+
+`LockOrUnlock`是通过系统调用`::fcntl(F_SETLK)`实现的文件加锁｜上锁。
+
+但是`::fcntl(F_SETLK)`只能在进程的层面上锁，对于同一进程里的多个线程，同时调用`::fcntl(F_SETLK)`，是无法保证只有一个线程能成功获得锁的。
+
+
+### PosixEnv::UnlockFile(FileLock* lock)
+
+了解`PosixEnv::LockFile`的实现后，`PosixEnv::UnlockFile`的实现就很简单了。
+
+释放进程层面以及线程层面的锁即可。
+
+```c++
+Status UnlockFile(FileLock* lock) override {
+    // 此处使用 static_cast 而不是 dynamic_cast，
+    // 是因为我们已经确定了lock指针的实际类型是 PosixFileLock。
+    // static_cast是一种静态转换，它在编译时进行类型检查，并且只能用于已知的类型转换。
+    // 它不会进行运行时类型检查，比 dynamic_cast 效率更高。
+    PosixFileLock* posix_file_lock = static_cast<PosixFileLock*>(lock);
+
+    // 释放进程层面的锁
+    if (LockOrUnlock(posix_file_lock->fd(), false) == -1) {
+        return PosixError("unlock " + posix_file_lock->filename(), errno);
+    }
+
+    // 释放线程层面的锁
+    locks_.Remove(posix_file_lock->filename());
+    ::close(posix_file_lock->fd());
+    delete posix_file_lock;
+    return Status::OK();
+}
+```
 
 

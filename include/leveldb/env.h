@@ -83,8 +83,6 @@ class LEVELDB_EXPORT Env {
     //     Slice result;
     //     // 从 file 里读取 kBufferSize 个字节到 result 里
     //     s = file->Read(kBufferSize, &result, buffer);
-    //     // 从上次读取的末尾位置开始，再从 file 里读取 kBufferSize 个字节到 result 里
-    //     s = file->Read(kBufferSize, &result, buffer);
     virtual Status NewSequentialFile(const std::string& fname, SequentialFile** result) = 0;
 
     // Create an object supporting random-access reads from the file with the
@@ -343,6 +341,8 @@ class LEVELDB_EXPORT Logger {
 };
 
 // Identifies a locked file.
+// FileLock 作为一个基类，除了起到抽象的作用，还有一个作用就是防止拷贝。
+// 继承了 FileLock 的子类，都不能进行拷贝。
 class LEVELDB_EXPORT FileLock {
    public:
     FileLock() = default;
