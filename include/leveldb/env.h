@@ -337,6 +337,7 @@ class LEVELDB_EXPORT Logger {
     virtual ~Logger();
 
     // Write an entry to the log file with the specified format.
+    // Logger 的子类需要实现该方法，以格式化的形式将日志信息写入到文件中。
     virtual void Logv(const char* format, std::va_list ap) = 0;
 };
 

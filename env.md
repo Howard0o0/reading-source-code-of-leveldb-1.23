@@ -32,7 +32,9 @@
     - [PosixEnv::StartThread(void (\*thread\_main)(void\* thread\_main\_arg), void\* thread\_main\_arg)](#posixenvstartthreadvoid-thread_mainvoid-thread_main_arg-void-thread_main_arg)
     - [PosixEnv::GetTestDirectory(std::string\* result)](#posixenvgettestdirectorystdstring-result)
     - [PosixEnv::NewLogger(const std::string\& filename, Logger\*\* result)](#posixenvnewloggerconst-stdstring-filename-logger-result)
-      - [PosixLogger 的实现](#posixlogger-的实现)
+      - [PosixLogger](#posixlogger)
+        - [Logger 接口](#logger-接口)
+        - [PosixLogger 的实现](#posixlogger-的实现)
     - [PosixEnv::NowMicros()](#posixenvnowmicros)
     - [PosixEnv::SleepForMicroseconds()](#posixenvsleepformicroseconds)
 
@@ -992,11 +994,139 @@ Status NewLogger(const std::string& filename, Logger** result) override {
 }
 ```
 
-#### PosixLogger 的实现
+#### PosixLogger
 
+PosixLogger 是 Logger 接口的实现，我们先看下 Logger 有哪些需要实现的接口。
 
+##### Logger 接口
+
+Logger 接口比较简单，只有一个`Logv`方法，用于将日志信息写入到文件中。
 
 ```c++
+class LEVELDB_EXPORT Logger {
+   public:
+    Logger() = default;
+
+    Logger(const Logger&) = delete;
+    Logger& operator=(const Logger&) = delete;
+
+    virtual ~Logger();
+
+    // Logger 的子类需要实现该方法，以格式化的形式将日志信息写入到文件中。
+    virtual void Logv(const char* format, std::va_list ap) = 0;
+};
+```
+
+##### PosixLogger 的实现
+
+Logger 接口中只有`Logv`一个方法需要子类来实现。现在我们看下`PosixLogger`是如何实现`Logv`的。
+
+日志格式为: \[时间戳\] \[线程ID\] \[日志内容\]
+
+`PosixLogger::Logv`首先尝试将日志信息写入一个栈上固定大小的缓冲区。如果日志信息太大，无法完全写入栈分配的缓冲区，那么它会使用一个动态分配的缓冲区进行第二次尝试。
+
+然后将缓冲区里的日志内容写入到文件中。
+
+```c++
+void Logv(const char* format, std::va_list arguments) override {
+    // 打日志时需要添加上时间戳，所以需要先获取当前时间。
+    struct ::timeval now_timeval;
+    ::gettimeofday(&now_timeval, nullptr);
+    const std::time_t now_seconds = now_timeval.tv_sec;
+    struct std::tm now_components;
+    ::localtime_r(&now_seconds, &now_components);
+
+    // 打日志时需要添加上线程 ID，所以需要先获取当前线程 ID。
+    // 通过不同方式获取的线程 ID 可能不同，对于同一个线程来说，
+    // 可能 GDB 中看到的线程 ID 是 1234，而 std::this_thread::get_id()
+    // 获取到的线程 ID 是 5678。
+    // 我们此处获取的线程 ID 不是为了真实要获取它的线程 ID，因为不存在"真实的线程 ID"。
+    // 只需要在打 LOG 的时候，我们能够区分出某条日志与其他条日志是否来自同一个线程即可。
+    // 所以我们只需要取前 32 位即可，足够区分不同线程了。
+    // 同样的做法我们也可以在 git 中看到，git 中每一条 commit 都会有一个 commit ID，
+    // git commit ID 的完整长度是 40 个字符，但我们一般取前 7 个字符就足够区分不同的 commit 了。
+    constexpr const int kMaxThreadIdSize = 32;
+    std::ostringstream thread_stream;
+    thread_stream << std::this_thread::get_id();
+    std::string thread_id = thread_stream.str();
+    if (thread_id.size() > kMaxThreadIdSize) {
+        thread_id.resize(kMaxThreadIdSize);
+    }
+
+    constexpr const int kStackBufferSize = 512;
+    char stack_buffer[kStackBufferSize];
+    static_assert(sizeof(stack_buffer) == static_cast<size_t>(kStackBufferSize),
+                    "sizeof(char) is expected to be 1 in C++");
+
+    int dynamic_buffer_size = 0;
+    for (int iteration = 0; iteration < 2; ++iteration) {
+        const int buffer_size = (iteration == 0) ? kStackBufferSize : dynamic_buffer_size;
+        char* const buffer = (iteration == 0) ? stack_buffer : new char[dynamic_buffer_size];
+
+        // 把时间戳和线程ID写入 buffer。
+        int buffer_offset = std::snprintf(
+            buffer, buffer_size, "%04d/%02d/%02d-%02d:%02d:%02d.%06d %s ",
+            now_components.tm_year + 1900, now_components.tm_mon + 1, now_components.tm_mday,
+            now_components.tm_hour, now_components.tm_min, now_components.tm_sec,
+            static_cast<int>(now_timeval.tv_usec), thread_id.c_str());
+
+        assert(buffer_offset <= 28 + kMaxThreadIdSize);
+        static_assert(28 + kMaxThreadIdSize < kStackBufferSize,
+                        "stack-allocated buffer may not fit the message header");
+        assert(buffer_offset < buffer_size);
+
+        // 把日志内容写入 buffer。
+        std::va_list arguments_copy;
+        va_copy(arguments_copy, arguments);
+        // 假设 buffer_size 是 512，写入 时间戳+线程ID 后，buffer_offset 是 40，
+        // 那么日志内容写入 buffer 的起始位置是 buffer + 40，最大写入长度是 512 - 40 = 472。
+        // 此时如果日志内容的长度超出了 472，比如说日志内容的长度是 500，
+        // 那 std::vsnprintf 最多也只会写入日志内容的前 472 个字符，但是
+        // 会将实际所需的 buffer 大小返回，也就是 500。
+        // buffer_offset 的值就是 40 + 500 = 540。
+        // 后面我们就可以通过查看 buffer_offset 的值来判断 buffer 是否足够大。
+        // 如果日志内容超出了 buffer 的长度，我们就需要重新分配一个更大的 buffer。
+        buffer_offset += std::vsnprintf(buffer + buffer_offset, buffer_size - buffer_offset,
+                                        format, arguments_copy);
+        va_end(arguments_copy);
+
+        // 把日志内容写入 buffer 后，还需要追加换行符和'\0'结束符，还需要 2 个字符的空间。
+        if (buffer_offset >= buffer_size - 1) {
+            // 此时 buffer_size - buffer_offset 已经 <= 1 了，
+            // 但我们还需要 2 个字符的空间，所以此时 buffer 已经不够用了。
+
+            if (iteration == 0) {
+                // 如果这是首轮尝试，我们就将 dynamic_buffer_size 
+                // 更新为 buffer_offset + 2，也就是日志内容的长度 + '\n' + '\0'，
+                // 下轮 iteration 再在堆上开辟一个 dynamic_buffer_size 的 buffer。
+                dynamic_buffer_size = buffer_offset + 2;
+                continue;
+            }
+
+            // 如果跑到此处，表示我们在第 2 轮 iteration 时，
+            // buffer 仍然不够用，这按理是不应该发生的。
+            assert(false);
+            buffer_offset = buffer_size - 1;
+        }
+
+        // 如果日志内容没有以 '\n' 结尾，就手动补一个 '\n'。
+        if (buffer[buffer_offset - 1] != '\n') {
+            buffer[buffer_offset] = '\n';
+            ++buffer_offset;
+        }
+
+        // 将 buffer 里的内容写入 fp_，并且对 fp_ 刷盘。
+        assert(buffer_offset <= buffer_size);
+        std::fwrite(buffer, 1, buffer_offset, fp_);
+        std::fflush(fp_);
+
+        // 如果当前是第 2 轮 iteration，buffer 是在堆上分配的，需要手动释放。
+        if (iteration != 0) {
+            delete[] buffer;
+        }
+        break;
+    }
+}
 ```
 
 ### PosixEnv::NowMicros()
