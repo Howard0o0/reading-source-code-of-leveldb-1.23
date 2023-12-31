@@ -289,6 +289,8 @@ class PosixMmapReadableFile final : public RandomAccessFile {
 
 class PosixWritableFile final : public WritableFile {
    public:
+    // 根据文件名判断是否是 manifest 文件。
+    // 如果是 manifest 文件，做个标记，Sync() 的时候需要做额外处理。
     PosixWritableFile(std::string filename, int fd)
         : pos_(0),
           fd_(fd),

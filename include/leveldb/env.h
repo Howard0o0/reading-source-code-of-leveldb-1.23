@@ -334,9 +334,16 @@ class LEVELDB_EXPORT WritableFile {
 
     virtual ~WritableFile();
 
+    // 追加数据到缓冲区
     virtual Status Append(const Slice& data) = 0;
+
+    // 写入完毕，关闭文件，并将缓冲区中的数据写入到文件中
     virtual Status Close() = 0;
+
+    // 把缓冲区里的数据 flush 到文件系统(内核缓冲区)中
     virtual Status Flush() = 0;
+
+    // 强制刷盘，将内核缓冲区中的数据刷到磁盘中
     virtual Status Sync() = 0;
 };
 

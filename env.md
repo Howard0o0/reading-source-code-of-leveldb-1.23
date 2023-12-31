@@ -794,7 +794,7 @@ Status NewWritableFile(const std::string& filename, WritableFile** result) overr
 }
 ```
 
-PosixWritableFile 的实现可移步参考[TODO: Env 中 WritableFile](TODO)
+PosixWritableFile 的实现可移步参考[大白话解析LevelDB: WritableFile 接口](https://blog.csdn.net/sinat_38293503/article/details/135118828)
 
 ### PosixEnv::NewAppendableFile(const std::string& fname, WritableFile** result)
 
@@ -813,7 +813,7 @@ Status NewAppendableFile(const std::string& filename, WritableFile** result) ove
 }
 ```
 
-PosixWritableFile 的实现可移步参考[TODO: Env 中 WritableFile](TODO)
+PosixWritableFile 的实现可移步参考[大白话解析LevelDB: WritableFile 接口](https://blog.csdn.net/sinat_38293503/article/details/135118828)
 
 ### PosixEnv::FileExists(const std::string& filename)
 
