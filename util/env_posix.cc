@@ -75,9 +75,13 @@ Status PosixError(const std::string& context, int error_number) {
 // Currently used to limit read-only file descriptors and mmap file usage
 // so that we do not run out of file descriptors or virtual memory, or run into
 // kernel performance problems for very large databases.
+// 
+// Limiter 是一个计数器，用于限制某种资源的使用数量。
 class Limiter {
    public:
     // Limit maximum number of resources to |max_acquires|.
+    // 
+    // 初始化时传入可用的最大资源数量，将计数器的值初始化为该值。
     Limiter(int max_acquires) : acquires_allowed_(max_acquires) {}
 
     Limiter(const Limiter&) = delete;
@@ -85,6 +89,9 @@ class Limiter {
 
     // If another resource is available, acquire it and return true.
     // Else return false.
+    //
+    // 如果当前可用的资源数量大于 0，那么就将计数器减 1，并返回 true。
+    // 如果当前可用的资源数量为 0，则返回 true。
     bool Acquire() {
         int old_acquires_allowed = acquires_allowed_.fetch_sub(1, std::memory_order_relaxed);
 
@@ -96,6 +103,8 @@ class Limiter {
 
     // Release a resource acquired by a previous call to Acquire() that returned
     // true.
+    //
+    // 将计数器的值加 1，表示归还一个资源。
     void Release() { acquires_allowed_.fetch_add(1, std::memory_order_relaxed); }
 
    private:
@@ -103,6 +112,8 @@ class Limiter {
     //
     // This is a counter and is not tied to the invariants of any other class,
     // so it can be operated on safely using std::memory_order_relaxed.
+    //
+    // 计数器
     std::atomic<int> acquires_allowed_;
 };
 
@@ -112,20 +123,29 @@ class Limiter {
 // by the SequentialFile API.
 class PosixSequentialFile final : public SequentialFile {
    public:
+    // 由 PosixSequentialFile 接管 fd。
+    // 当 PosixSequentialFile 析构时，会负责关闭 fd。
     PosixSequentialFile(std::string filename, int fd) : fd_(fd), filename_(filename) {}
     ~PosixSequentialFile() override { close(fd_); }
 
     Status Read(size_t n, Slice* result, char* scratch) override {
         Status status;
         while (true) {
+            // 尝试通过系统调用 ::read 从文件中读取 n bytes 数据。
             ::ssize_t read_size = ::read(fd_, scratch, n);
+
+            // 如果读取失败，根据失败原因来判断是否需要重试。
             if (read_size < 0) {  // Read error.
+                // 碰到因为中断导致的读取失败，就重新读取。
                 if (errno == EINTR) {
                     continue;  // Retry
                 }
+                // 碰到其他原因导致的读取失败，直接返回错误。
                 status = PosixError(filename_, errno);
                 break;
             }
+
+            // 读取成功，更新 result。
             *result = Slice(scratch, read_size);
             break;
         }
@@ -133,6 +153,7 @@ class PosixSequentialFile final : public SequentialFile {
     }
 
     Status Skip(uint64_t n) override {
+        // 通过 ::lseek 改变该文件的读写光标。
         if (::lseek(fd_, n, SEEK_CUR) == static_cast<off_t>(-1)) {
             return PosixError(filename_, errno);
         }
@@ -153,6 +174,13 @@ class PosixRandomAccessFile final : public RandomAccessFile {
    public:
     // The new instance takes ownership of |fd|. |fd_limiter| must outlive this
     // instance, and will be used to determine if .
+    // 
+    // PosixRandomAccessFile 会接管 fd，析构时负责关闭 fd。
+    // fd_limiter 是一个计数器，用于限制一直打开的 fd 的使用数量。
+    // fd_limiter->Acquire() 表示从 fd_limiter 中获取一个 fd，
+    // 如果使用的 fd 超过限制，fd_limiter->Acquire() 会返回失败。
+    // has_permanent_fd_ 的含义是该 fd 是否一直保持打开状态。
+    // 如果 has_permanent_fd_ 为 false，每次读前都要打开 fd，读完后再关闭 fd。
     PosixRandomAccessFile(std::string filename, int fd, Limiter* fd_limiter)
         : has_permanent_fd_(fd_limiter->Acquire()),
           fd_(has_permanent_fd_ ? fd : -1),
@@ -165,6 +193,8 @@ class PosixRandomAccessFile final : public RandomAccessFile {
     }
 
     ~PosixRandomAccessFile() override {
+        // 如果 fd 是一直保持打开状态的，那么析构时需要关闭 fd，
+        // 并且将 fd 归还给 fd_limiter。
         if (has_permanent_fd_) {
             assert(fd_ != -1);
             ::close(fd_);
@@ -174,6 +204,7 @@ class PosixRandomAccessFile final : public RandomAccessFile {
 
     Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
         int fd = fd_;
+        // 如果 fd 不是一直保持打开状态的，那么需要先打开 fd。
         if (!has_permanent_fd_) {
             fd = ::open(filename_.c_str(), O_RDONLY | kOpenBaseFlags);
             if (fd < 0) {
@@ -184,12 +215,15 @@ class PosixRandomAccessFile final : public RandomAccessFile {
         assert(fd != -1);
 
         Status status;
+        // 使用 ::pread 从指定的 offset 处读取 n bytes 数据。
         ssize_t read_size = ::pread(fd, scratch, n, static_cast<off_t>(offset));
         *result = Slice(scratch, (read_size < 0) ? 0 : read_size);
         if (read_size < 0) {
             // An error: return a non-ok status.
             status = PosixError(filename_, errno);
         }
+
+        // 读完后，如果 fd 不需要一直保持打开状态，则关闭 fd。
         if (!has_permanent_fd_) {
             // Close the temporary file descriptor opened earlier.
             assert(fd != fd_);
@@ -219,6 +253,10 @@ class PosixMmapReadableFile final : public RandomAccessFile {
     // |mmap_limiter| must outlive this instance. The caller must have already
     // aquired the right to use one mmap region, which will be released when
     // this instance is destroyed.
+    //
+    // mmap_limiter 是一个计数器，用于限制 mmap region 的使用数量。
+    // 调用者需要先调用 mmap_limiter->Acquire() 获取一个 mmap region 的使用权，
+    // PosixMmapReadableFile 在销毁时会调用 mmap_limiter->Release() 归还该 mmap region。
     PosixMmapReadableFile(std::string filename, char* mmap_base, size_t length,
                           Limiter* mmap_limiter)
         : mmap_base_(mmap_base),
@@ -237,6 +275,7 @@ class PosixMmapReadableFile final : public RandomAccessFile {
             return PosixError(filename_, EINVAL);
         }
 
+        // 对于已经 mmap 好的文件，直接从内存空间 mmap_base_ 中读取数据。
         *result = Slice(mmap_base_ + offset, n);
         return Status::OK();
     }

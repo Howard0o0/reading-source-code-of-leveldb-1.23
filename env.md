@@ -11,7 +11,15 @@
     - [PosixEnv 的构造函数](#posixenv-的构造函数)
     - [PosixEnv 的构造函数](#posixenv-的构造函数-1)
     - [PosixEnv::NewSequentialFile(const std::string\& filename, SequentialFile\*\* result)](#posixenvnewsequentialfileconst-stdstring-filename-sequentialfile-result)
+      - [SequentialFile](#sequentialfile)
+      - [PosixSequentialFile](#posixsequentialfile)
     - [PosixEnv::NewRandomAccessFile(const std::string\& filename, RandomAccessFile\*\* result)](#posixenvnewrandomaccessfileconst-stdstring-filename-randomaccessfile-result)
+      - [RandomAccessFile](#randomaccessfile)
+      - [PosixRandomAccessFile](#posixrandomaccessfile)
+        - [fd\_limiter 是什么](#fd_limiter-是什么)
+        - [PosixRandomAccessFile 的实现](#posixrandomaccessfile-的实现)
+      - [PosixMmapReadableFile](#posixmmapreadablefile)
+      - [PosixMmapReadableFile 与 PosixRandomAccessFile 的区别](#posixmmapreadablefile-与-posixrandomaccessfile-的区别)
     - [PosixEnv::NewWritableFile(const std::string\& fname, WritableFile\*\* result)](#posixenvnewwritablefileconst-stdstring-fname-writablefile-result)
     - [PosixEnv::NewAppendableFile(const std::string\& fname, WritableFile\*\* result)](#posixenvnewappendablefileconst-stdstring-fname-writablefile-result)
     - [PosixEnv::FileExists(const std::string\& filename)](#posixenvfileexistsconst-stdstring-filename)
@@ -468,8 +476,78 @@ Status NewSequentialFile(const std::string& filename, SequentialFile** result) o
 }
 ```
 
-PosixSequentialFile 的实现可移步参考[TODO: Env 中 SequentialFile](TODO)
+#### SequentialFile
 
+`SequentialFile`是用于顺序读取文件的接口类，子类需要实现`Read`和`Skip`方法。
+
+```c++
+// 定义了一个用于顺序读取文件的接口类
+class LEVELDB_EXPORT SequentialFile {
+   public:
+    SequentialFile() = default;
+
+    // 禁止拷贝
+    SequentialFile(const SequentialFile&) = delete;
+    SequentialFile& operator=(const SequentialFile&) = delete;
+
+    virtual ~SequentialFile();
+
+    // 尝试从文件中读取最多 n bytes 的数据，放到 scratch 中，
+    // 并且将 result 指向 scratch 中的数据。
+    // 该方法不保证线程安全。
+    virtual Status Read(size_t n, Slice* result, char* scratch) = 0;
+
+    // 跳过文件中的 n bytes 数据。
+    // 就是将光标往后移动 n 个字节。
+    virtual Status Skip(uint64_t n) = 0;
+};
+```
+
+#### PosixSequentialFile
+
+我们来看下 PosixSequentialFile 是如何实现 SequentialFile 接口的。
+
+```c++
+class PosixSequentialFile final : public SequentialFile {
+   public:
+    // 由 PosixSequentialFile 接管 fd。
+    // 当 PosixSequentialFile 析构时，会负责关闭 fd。
+    PosixSequentialFile(std::string filename, int fd) : fd_(fd), filename_(filename) {}
+    ~PosixSequentialFile() override { close(fd_); }
+
+    Status Read(size_t n, Slice* result, char* scratch) override {
+        Status status;
+        while (true) {
+            // 尝试通过系统调用 ::read 从文件中读取 n bytes 数据。
+            ::ssize_t read_size = ::read(fd_, scratch, n);
+
+            // 如果读取失败，根据失败原因来判断是否需要重试。
+            if (read_size < 0) {  // Read error.
+                // 碰到因为中断导致的读取失败，就重新读取。
+                if (errno == EINTR) {
+                    continue;  // Retry
+                }
+                // 碰到其他原因导致的读取失败，直接返回错误。
+                status = PosixError(filename_, errno);
+                break;
+            }
+
+            // 读取成功，更新 result。
+            *result = Slice(scratch, read_size);
+            break;
+        }
+        return status;
+    }
+
+    Status Skip(uint64_t n) override {
+        // 通过 ::lseek 改变该文件的读写光标。
+        if (::lseek(fd_, n, SEEK_CUR) == static_cast<off_t>(-1)) {
+            return PosixError(filename_, errno);
+        }
+        return Status::OK();
+    }
+};
+```
 
 ### PosixEnv::NewRandomAccessFile(const std::string& filename, RandomAccessFile** result)
 
@@ -511,9 +589,190 @@ Status NewRandomAccessFile(const std::string& filename, RandomAccessFile** resul
 }
 ```
 
-PosixRandomAccessFile 的实现可移步参考[TODO: Env 中 RandomAccessFile](TODO)
+#### RandomAccessFile
 
-PosixMmapReadableFile 的实现可移步参考[TODO: Env 中 MmapReadableFile](TODO)
+`RandomAccessFile`是一个一个用于随机读取文件的接口类，子类需要实现`Read`方法。
+
+```c++
+class LEVELDB_EXPORT RandomAccessFile {
+   public:
+    RandomAccessFile() = default;
+
+    RandomAccessFile(const RandomAccessFile&) = delete;
+    RandomAccessFile& operator=(const RandomAccessFile&) = delete;
+
+    virtual ~RandomAccessFile();
+
+    // 从文件的 offset 位置开始，尝试读取最多 n bytes 的数据，放到 scratch 中，
+    // 并且将 result 指向 scratch 中的数据。
+    // 该接口保证线程安全。
+    virtual Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const = 0;
+};
+```
+
+#### PosixRandomAccessFile
+
+`PosixRandomAccessFile`在构造时需要传入`fd`与`fd_limiter`。
+
+`fd`我们都知道是文件描述符，那`fd_limiter`是什么呢？
+
+##### fd_limiter 是什么
+
+`fd_limiter`的类型是`Limiter*`，它是一个计数器，用于限制可同时打开的文件数量。
+
+如果同时打开的文件过多，可能会导致文件描述符耗尽，消耗过多的内核资源。
+
+```c++
+class Limiter {
+   public:
+    // 初始化时传入可用的最大资源数量，将计数器的值初始化为该值。
+    Limiter(int max_acquires) : acquires_allowed_(max_acquires) {}
+
+    Limiter(const Limiter&) = delete;
+    Limiter operator=(const Limiter&) = delete;
+
+    // 如果当前可用的资源数量大于 0，那么就将计数器减 1，并返回 true。
+    // 如果当前可用的资源数量为 0，则返回 true。
+    bool Acquire() {
+        int old_acquires_allowed = acquires_allowed_.fetch_sub(1, std::memory_order_relaxed);
+
+        if (old_acquires_allowed > 0) return true;
+
+        acquires_allowed_.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+
+    // 将计数器的值加 1，表示归还一个资源。
+    void Release() { acquires_allowed_.fetch_add(1, std::memory_order_relaxed); }
+
+   private:
+    // 计数器
+    std::atomic<int> acquires_allowed_;
+};
+```
+
+##### PosixRandomAccessFile 的实现
+
+`PosixRandomAccessFile`会接管`fd`，析构时负责关闭`fd`。
+
+`PosixRandomAccessFile::Read`通过系统调用`::pread`从指定的`offset`处读取`n` bytes 数据，实现随机读取接口。
+
+```c++
+class PosixRandomAccessFile final : public RandomAccessFile {
+   public:
+    // PosixRandomAccessFile 会接管 fd，析构时负责关闭 fd。
+    // fd_limiter 是一个计数器，用于限制一直打开的 fd 的使用数量。
+    // fd_limiter->Acquire() 表示从 fd_limiter 中获取一个 fd，
+    // 如果使用的 fd 超过限制，fd_limiter->Acquire() 会返回失败。
+    // has_permanent_fd_ 的含义是该 fd 是否一直保持打开状态。
+    // 如果 has_permanent_fd_ 为 false，每次读前都要打开 fd，读完后再关闭 fd。
+    PosixRandomAccessFile(std::string filename, int fd, Limiter* fd_limiter)
+        : has_permanent_fd_(fd_limiter->Acquire()),
+          fd_(has_permanent_fd_ ? fd : -1),
+          fd_limiter_(fd_limiter),
+          filename_(std::move(filename)) {
+        if (!has_permanent_fd_) {
+            assert(fd_ == -1);
+            ::close(fd);  // The file will be opened on every read.
+        }
+    }
+
+    ~PosixRandomAccessFile() override {
+        // 如果 fd 是一直保持打开状态的，那么析构时需要关闭 fd，
+        // 并且将 fd 归还给 fd_limiter。
+        if (has_permanent_fd_) {
+            assert(fd_ != -1);
+            ::close(fd_);
+            fd_limiter_->Release();
+        }
+    }
+
+    Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
+        int fd = fd_;
+        // 如果 fd 不是一直保持打开状态的，那么需要先打开 fd。
+        if (!has_permanent_fd_) {
+            fd = ::open(filename_.c_str(), O_RDONLY | kOpenBaseFlags);
+            if (fd < 0) {
+                return PosixError(filename_, errno);
+            }
+        }
+
+        assert(fd != -1);
+
+        Status status;
+        // 使用 ::pread 从指定的 offset 处读取 n bytes 数据。
+        ssize_t read_size = ::pread(fd, scratch, n, static_cast<off_t>(offset));
+        *result = Slice(scratch, (read_size < 0) ? 0 : read_size);
+        if (read_size < 0) {
+            // An error: return a non-ok status.
+            status = PosixError(filename_, errno);
+        }
+
+        // 读完后，如果 fd 不需要一直保持打开状态，则关闭 fd。
+        if (!has_permanent_fd_) {
+            assert(fd != fd_);
+            ::close(fd);
+        }
+        return status;
+    }
+};
+```
+
+#### PosixMmapReadableFile
+
+`PosixMmapReadableFile`是`RandomAccessFile`的另一个实现。与`PosixRandomAccessFile`不同的是，`PosixRandomAccessFile`通过`::pread`从磁盘中读取文件内容，而`PosixMmapReadableFile`使用`mmap`将文件映射到内存中，然后从内存中读取文件内容。
+
+```c++
+class PosixMmapReadableFile final : public RandomAccessFile {
+   public:
+    // 文件的内容都被映射到 mmap_base[0, length-1] 这块内存空间。
+    // mmap_limiter 是一个计数器，用于限制 mmap region 的使用数量。
+    // 调用者需要先调用 mmap_limiter->Acquire() 获取一个 mmap region 的使用权，
+    // PosixMmapReadableFile 在销毁时会调用 mmap_limiter->Release() 归还该 mmap region。
+    PosixMmapReadableFile(std::string filename, char* mmap_base, size_t length,
+                          Limiter* mmap_limiter)
+        : mmap_base_(mmap_base),
+          length_(length),
+          mmap_limiter_(mmap_limiter),
+          filename_(std::move(filename)) {}
+
+    ~PosixMmapReadableFile() override {
+        ::munmap(static_cast<void*>(mmap_base_), length_);
+        mmap_limiter_->Release();
+    }
+
+    Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
+        if (offset + n > length_) {
+            *result = Slice();
+            return PosixError(filename_, EINVAL);
+        }
+
+        // 对于已经 mmap 好的文件，直接从内存空间 mmap_base_ 中读取数据。
+        *result = Slice(mmap_base_ + offset, n);
+        return Status::OK();
+    }
+
+   private:
+    char* const mmap_base_;
+    const size_t length_;
+    Limiter* const mmap_limiter_;
+    const std::string filename_;
+};
+```
+
+#### PosixMmapReadableFile 与 PosixRandomAccessFile 的区别
+
+`PosixMmapReadableFile`使用`mmap`将文件映射到内存中，然后从内存中读取文件内容。当我们第一次访问这块 mmap 内存空间时，会触发一次 Page Fault 中断，内核将这部分文件内容从磁盘中读取到内存中。当我们第二次再访问同样的内存空间时，就不需要再进行一次磁盘 IO 了，直接从内存中读取。
+
+`PosixRandomAccessFile`通过`::pread`从磁盘中读取文件内容。每次读取都是从磁盘的文件中读取。
+
+所以对于会反复读取的文件，使用`PosixMmapReadableFile`会比`PosixRandomAccessFile`性能更好。
+
+但是对于只需要读取一次的文件，使用`PosixRandomAccessFile`的开销会更小一些，因为`PosixMmapReadableFile`还需要额外的内存映射管理，建立磁盘上文件内容到进程内存空间的映射关系。
+
+但是在 Linux 平台上，存在 Page Cache 机制，对文件内容进行缓存。当第一次通过`::pread`读取时，内容会被缓存到 Page Cache 中。当第二次再通过`::pread`读取时，就不需要再进行一次磁盘 IO 了，直接从 Page Cache 中读取。
+
+所以在 Linux 平台上，对于反复读取的场景，`PosixMmapReadableFile`和`PosixRandomAccessFile`的性能差异不会太大。
 
 ### PosixEnv::NewWritableFile(const std::string& fname, WritableFile** result)
 

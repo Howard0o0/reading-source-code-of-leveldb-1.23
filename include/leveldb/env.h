@@ -257,10 +257,12 @@ class LEVELDB_EXPORT Env {
 };
 
 // A file abstraction for reading sequentially through a file
+// 定义了一个用于顺序读取文件的接口类
 class LEVELDB_EXPORT SequentialFile {
    public:
     SequentialFile() = default;
 
+    // 禁止拷贝
     SequentialFile(const SequentialFile&) = delete;
     SequentialFile& operator=(const SequentialFile&) = delete;
 
@@ -274,6 +276,10 @@ class LEVELDB_EXPORT SequentialFile {
     // If an error was encountered, returns a non-OK status.
     //
     // REQUIRES: External synchronization
+    // 
+    // 尝试从文件中读取最多 n bytes 的数据，放到 scratch 中，
+    // 并且将 result 指向 scratch 中的数据。
+    // 该方法不保证线程安全。
     virtual Status Read(size_t n, Slice* result, char* scratch) = 0;
 
     // Skip "n" bytes from the file. This is guaranteed to be no
@@ -283,10 +289,14 @@ class LEVELDB_EXPORT SequentialFile {
     // file, and Skip will return OK.
     //
     // REQUIRES: External synchronization
+    //
+    // 跳过文件中的 n bytes 数据。
+    // 就是将光标往后移动 n 个字节。
     virtual Status Skip(uint64_t n) = 0;
 };
 
 // A file abstraction for randomly reading the contents of a file.
+// 定义了一个用于随机读取文件的接口类
 class LEVELDB_EXPORT RandomAccessFile {
    public:
     RandomAccessFile() = default;
@@ -305,6 +315,10 @@ class LEVELDB_EXPORT RandomAccessFile {
     // status.
     //
     // Safe for concurrent use by multiple threads.
+    // 
+    // 从文件的 offset 位置开始，尝试读取最多 n bytes 的数据，放到 scratch 中，
+    // 并且将 result 指向 scratch 中的数据。
+    // 该接口保证线程安全。
     virtual Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const = 0;
 };
 
