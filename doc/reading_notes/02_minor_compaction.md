@@ -178,7 +178,7 @@ void DBImpl::MaybeScheduleCompaction() {
 
 我们现在关心的是`MemTable Compaction`。但现在还是没有看到是怎么触发`MemTable Compaction`的，需要继续查看`DBImpl::BGWork`的实现细节。
 
-对`env_->Schedule`的实现感兴趣的同学，可以移步参考[TODO](TODO)
+对`env_->Schedule`的实现感兴趣的同学，可以移步参考[大白话解析LevelDB: Env](https://blog.csdn.net/sinat_38293503/article/details/135310073?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22135310073%22%2C%22source%22%3A%22sinat_38293503%22%7D#PosixEnvSchedulevoid_background_work_functionvoid_background_work_arg_void_background_work_arg_1057)
 
 ```c++
 void DBImpl::BGWork(void* db) {
