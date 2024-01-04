@@ -213,23 +213,40 @@ class VersionSet {
     // current version.  Will release *mu while actually writing to the file.
     // REQUIRES: *mu is held on entry.
     // REQUIRES: no other thread concurrently calls LogAndApply()
+    //
+    // 将 VersionEdit 应用到当前 Version，生成新的 Version，
+    // 并将新 Version 加入到 VersionSet 中。
+    // Version N + VersionEdit = Version N+1。
     Status LogAndApply(VersionEdit* edit, port::Mutex* mu) EXCLUSIVE_LOCKS_REQUIRED(mu);
 
     // Recover the last saved descriptor from persistent storage.
+    // 从manifest文件中恢复数据库的状态。
+    // 在LevelDB启动时，会调用这个方法来加载数据库的当前状态。
     Status Recover(bool* save_manifest);
 
     // Return the current version.
+    // 返回当前的 Version。
     Version* current() const { return current_; }
 
     // Return the current manifest file number
+    // 返回当前正在使用的 MANIFEST 文件编号。
     uint64_t ManifestFileNumber() const { return manifest_file_number_; }
 
     // Allocate and return a new file number
+    // 生成一个新的文件编号。
     uint64_t NewFileNumber() { return next_file_number_++; }
 
     // Arrange to reuse "file_number" unless a newer file number has
     // already been allocated.
     // REQUIRES: "file_number" was returned by a call to NewFileNumber().
+    // 
+    // VersionSet::ReuseFileNumber方法用于在某些情况下重复使用SST文件编号。
+    // 这通常在创建新的SST文件但未实际使用它，然后决定删除它的情况下发生。
+    // 例如，当LevelDB进行压缩操作时，它会创建新的SST文件来存储压缩后的数据。
+    // 然而，如果在创建新文件后，压缩操作由于某种原因（如错误或异常）被中断，
+    // 那么新创建的SST文件可能就不再需要了。在这种情况下，LevelDB可以通过
+    // 调用VersionSet::ReuseFileNumber方法来重复使用该SST文件的编号，
+    // 而不是浪费一个新的编号。
     void ReuseFileNumber(uint64_t file_number) {
         if (next_file_number_ == file_number + 1) {
             next_file_number_ = file_number;
@@ -237,51 +254,83 @@ class VersionSet {
     }
 
     // Return the number of Table files at the specified level.
+    //
+    // 返回某一层上的 SST 文件数量。
     int NumLevelFiles(int level) const;
 
     // Return the combined file size of all files at the specified level.
+    // 
+    // 返回某一层上 SST 文件的总大小。
     int64_t NumLevelBytes(int level) const;
 
     // Return the last sequence number.
+    //
+    // 返回当前数据库中最大的 Sequence Number。
     uint64_t LastSequence() const { return last_sequence_; }
 
     // Set the last sequence number to s.
+    // 
+    // 设置当前数据库中最大的 Sequence Number。
     void SetLastSequence(uint64_t s) {
         assert(s >= last_sequence_);
         last_sequence_ = s;
     }
 
     // Mark the specified file number as used.
+    //
+    // 标记某个文件编号已经被使用。
     void MarkFileNumberUsed(uint64_t number);
 
     // Return the current log file number.
+    //
+    // 返回当前正在使用的 WAL 文件编号。
     uint64_t LogNumber() const { return log_number_; }
 
     // Return the log file number for the log file that is currently
     // being compacted, or zero if there is no such log file.
+    //
+    // prev_log_number_ 记录了当前正在进行 Compaction 的 WAL 文件编号。
+    // 当开始 Compaction 时，当前的 WAL 可能仍有一些正在写入的数据。为了
+    // 确保这些数据不会丢失，LevelDB 并不会立即删除 WAL 文件。相反，它开始写入
+    // 一个新的 WAL 文件，并在prev_log_number_中保留对旧日志文件（正在被压缩的文件）的引用。
+    // 这样，即使在 Compaction 过程中发生崩溃，LevelDB 仍然可以从旧的日志文件中恢复数据。
+    // 一旦 Compaction 完成并且旧 WAL 文件中的所有数据都安全地写入到SST文件中，
+    // 旧的 WAL 文件就会被删除，prev_log_number_被设置为零。
     uint64_t PrevLogNumber() const { return prev_log_number_; }
 
     // Pick level and inputs for a new compaction.
     // Returns nullptr if there is no compaction to be done.
     // Otherwise returns a pointer to a heap-allocated object that
     // describes the compaction.  Caller should delete the result.
+    // 
+    // 选择一个合适的 Level 和 SST 文件集合进行 Compaction，
+    // 用 Compaction 对象表示这次 Compaction 所需的信息。
     Compaction* PickCompaction();
 
     // Return a compaction object for compacting the range [begin,end] in
     // the specified level.  Returns nullptr if there is nothing in that
     // level that overlaps the specified range.  Caller should delete
     // the result.
+    //
+    // 指定 Level 和一个范围 [begin, end]，返回一个 Compaction 对象，
     Compaction* CompactRange(int level, const InternalKey* begin, const InternalKey* end);
 
     // Return the maximum overlapping data (in bytes) at next level for any
     // file at a level >= 1.
+    //
+    // 对每一层计算 level-i 与 level-i+1 之间的 overlap bytes。
+    // 返回最大的 overlap bytes。
     int64_t MaxNextLevelOverlappingBytes();
 
     // Create an iterator that reads over the compaction inputs for "*c".
     // The caller should delete the iterator when no longer needed.
+    //
+    // 读取 Compaction 里包含的输入文件，创建一个可以遍历这些文件的 Iterator。
     Iterator* MakeInputIterator(Compaction* c);
 
     // Returns true iff some level needs a compaction.
+    //
+    // 判断当前是否需要进行 Compaction。
     bool NeedsCompaction() const {
         Version* v = current_;
         return (v->compaction_score_ >= 1) || (v->file_to_compact_ != nullptr);
@@ -289,10 +338,31 @@ class VersionSet {
 
     // Add all files listed in any live version to *live.
     // May also mutate some internal state.
+    //
+    // 将所有活跃的 SST 文件编号添加到 live 中。
+    // 活跃的 SST 指正在参与 compaction 或者未过期的 SST。
+    // 有些 SST 由于创建了快照，compaction 时没有将其删除。
+    // 快照释放后，这些 SST 就过期了，不属于任何一个 level，但是仍然存在于磁盘上。
     void AddLiveFiles(std::set<uint64_t>* live);
 
     // Return the approximate offset in the database of the data for
     // "key" as of version "v".
+    // 计算 key 在指定版本中的大致偏移量。
+    // 假设该版本的数据库状态如下:
+    //           +----------------------------+
+    // Level-0   |  SST0      SST1      SST2  |
+    //           +----------------------------+
+    // Level-1   |  SST3      SST4      SST5  |
+    //           +----------------------------+
+    // Level-2   |            ...             |
+    //           +----------------------------+
+    // Level-3   |            ...             |
+    //           +----------------------------+
+    // Level-4   |            ...             |
+    //           +----------------------------+
+    //
+    // 假设目标 key 是 SST4 中的第一个，每个 SST 的大小为 4KB，
+    // 则`ApproximateOffsetOf`返回的 offset 为 4 * 4KB = 16KB。
     uint64_t ApproximateOffsetOf(Version* v, const InternalKey& key);
 
     // Return a human-readable short (single-line) summary of the number
@@ -300,6 +370,9 @@ class VersionSet {
     struct LevelSummaryStorage {
         char buffer[100];
     };
+    // 以可视化的方式打印每个 level 的 SST 数量。
+    // 比如 scratch->buffer = "files[ 1, 5, 7, 9, 0, 0, 0]"
+    // 表示 Level-0 有 1 个 SST，Level-1 有 5 个 SST，以此类推。
     const char* LevelSummary(LevelSummaryStorage* scratch) const;
 
    private:
@@ -342,7 +415,9 @@ class VersionSet {
     uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
     /* part 3: Opened lazily, manifest 相关 */
+    // descriptor_file_ 指向当前正在使用的 MANIFEST 文件. 
     WritableFile* descriptor_file_;
+    // descriptor_log_ 是 descriptor_file_ 的 Writer。
     log::Writer* descriptor_log_;
 
     /* part 4: Double Linked List */

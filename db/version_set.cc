@@ -729,6 +729,8 @@ std::string Version::DebugString() const {
 class VersionSet::Builder {
    private:
     // Helper to sort by v->files_[file_number].smallest
+    //
+    // 自定义 FileSet 的比较函数，按照 smallest key 升序排列。
     struct BySmallestKey {
         const InternalKeyComparator* internal_comparator;
 
@@ -767,13 +769,14 @@ class VersionSet::Builder {
         BySmallestKey cmp;
         cmp.internal_comparator = &vset_->icmp_;
 
-        /* 为每一层 level 初始化 FileSet */
+        // 为每一层 level 初始化 FileSet
         for (int level = 0; level < config::kNumLevels; level++) {
             levels_[level].added_files = new FileSet(cmp);
         }
     }
 
     ~Builder() {
+        // 析构 levels_ 及其子元素
         for (int level = 0; level < config::kNumLevels; level++) {
             const FileSet* added = levels_[level].added_files;
             std::vector<FileMetaData*> to_unref;
@@ -800,12 +803,17 @@ class VersionSet::Builder {
          * SSTable， 下面一段代码做的事情只是简单地把
          * VersionEdit::compact_pointers_ 中的内容转换成
          * VersionSet::compact_pointer_ 而已 */
+        // vset_->compact_pointer_[i] 记录 level-i 下一次 Compaction 的起始 InternalKey。
+        // 下面这段 for 循环只是把 VersionEdit::compact_pointers_ 中的内容转换成 VersionSet::compact_pointer_。
         for (size_t i = 0; i < edit->compact_pointers_.size(); i++) {
             const int level = edit->compact_pointers_[i].first;
+            // vset_->compact_pointer_[i] 记录 level-i 下一次 Compaction 的起始 InternalKey
             vset_->compact_pointer_[level] = edit->compact_pointers_[i].second.Encode().ToString();
         }
 
         // Delete files
+        //
+        // 将 deleted files 记录到 levels_ 中。
         for (const auto& deleted_file_set_kvp : edit->deleted_files_) {
             const int level = deleted_file_set_kvp.first;
             const uint64_t number = deleted_file_set_kvp.second;
@@ -813,6 +821,8 @@ class VersionSet::Builder {
         }
 
         // Add new files
+        //
+        // 将 new files 记录到 levels_ 中。
         for (size_t i = 0; i < edit->new_files_.size(); i++) {
             const int level = edit->new_files_[i].first;
             FileMetaData* f = new FileMetaData(edit->new_files_[i].second);
@@ -831,7 +841,10 @@ class VersionSet::Builder {
             // same as the compaction of 40KB of data.  We are a little
             // conservative and allow approximately one seek for every 16KB
             // of data before triggering a compaction.
-            // 计算 allowed_seeks
+            // 设置每个 New SST 文件的 allowed_seeks。
+            // allowed_seeks 表示该 SST 文件允许被查找的次数，每被读取一次，allowed_seeks 就减 1。
+            // allowed_seeks 为 0 时，该 SST 文件就会被加入到 compaction 调度中。
+            // allowed_seeks 的计算方式如下: max(100, file_size / 16KB)。
             f->allowed_seeks = static_cast<int>((f->file_size / 16384U));
             if (f->allowed_seeks < 100) f->allowed_seeks = 100;
 
@@ -847,6 +860,14 @@ class VersionSet::Builder {
         for (int level = 0; level < config::kNumLevels; level++) {
             // Merge the set of added files with the set of pre-existing files.
             // Drop any deleted files.  Store the result in *v.
+            //
+            // base_files 是该层上原有的 SST，added_files 是该层上新增的 SST。
+            // 将 base_files 与 added_files 合并后，存放到 v->files_[level] 中。
+            //
+            // 对于每一层，先准备好 base_files 和 added_files。
+            // 比如说，base_files = [1, 3, 5]，added_files = [2, 4]
+            // 那么就应该按照 [1, 2, 3, 4, 5] 的顺序调用 MaybeAddFile 方法，将 SST 添加
+            // 到 v->files_[level] 中。
             const std::vector<FileMetaData*>& base_files = base_->files_[level];
             std::vector<FileMetaData*>::const_iterator base_iter = base_files.begin();
             std::vector<FileMetaData*>::const_iterator base_end = base_files.end();
@@ -889,7 +910,10 @@ class VersionSet::Builder {
     void MaybeAddFile(Version* v, int level, FileMetaData* f) {
         if (levels_[level].deleted_files.count(f->number) > 0) {
             // File is deleted: do nothing
+            // 
+            // 如果 f 出现在 deleted_files 中，说明该 SST 文件已经被删除了，不需要添加到 v->files_[level] 中。
         } else {
+            // 如果 f 没有出现在 deleted_files 中，则将其添加到 v->files_[level] 中。
             std::vector<FileMetaData*>* files = &v->files_[level];
             if (level > 0 && !files->empty()) {
                 // Must not overlap
@@ -969,6 +993,9 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
     edit->SetNextFile(next_file_number_);
     edit->SetLastSequence(last_sequence_);
 
+    // 创建一个新的 Version，利用 Builder，基于当前版本 current_，
+    // 把 edit 应用到新的 Version 中。
+    // 简单来说: current_ + edit = new version
     Version* v = new Version(this);
     {
         Builder builder(this, current_);
@@ -979,26 +1006,42 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
 
     // Initialize new descriptor log file if necessary by creating
     // a temporary file that contains a snapshot of the current version.
+    // 每产生一个新的 Version，都需要创建一个对应的 New MANIFEST。
     std::string new_manifest_file;
     Status s;
+    // 当数据库是第一次被打开时，descriptor_log_ 为 nullptr。
     if (descriptor_log_ == nullptr) {
         // No reason to unlock *mu here since we only hit this path in the
         // first call to LogAndApply (when opening the database).
         assert(descriptor_file_ == nullptr);
+        // 生成新的 MANIFEST 文件名
         new_manifest_file = DescriptorFileName(dbname_, manifest_file_number_);
+
+        // 此处的 edit->SetNextFile(next_file_number_); 是多余的，
+        // 之前已经 set 过了。
         edit->SetNextFile(next_file_number_);
+
+        // 由于数据库是第一次打开，需要先把当前状态写入到新的 MANIFEST 文件中，作为 base version。
+        // 状态指的是每层 Level 都有哪些 SST 文件。
         s = env_->NewWritableFile(new_manifest_file, &descriptor_file_);
         if (s.ok()) {
             descriptor_log_ = new log::Writer(descriptor_file_);
+            // 将数据库的当前状态写入到新的 MANIFEST 文件中。
             s = WriteSnapshot(descriptor_log_);
         }
     }
 
     // Unlock during expensive MANIFEST log write
     {
+        // 只有以下 3 种情况会读取 MANIFEST 和 CURRETN 文件:
+        //   - 数据库启动时
+        //   - Recover 时
+        //   - Compaction 后调用 VersionSet::LogAndApply
+        // 此处可以 unlock mu，是因为上面这 3 种情况不会有 2 种同时发生。
         mu->Unlock();
 
         // Write new record to MANIFEST log
+        // 往 MANIFEST 中添加 edit。
         if (s.ok()) {
             std::string record;
             edit->EncodeTo(&record);
@@ -1013,6 +1056,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
 
         // If we just created a new descriptor file, install it by writing a
         // new CURRENT file that points to it.
+        // 如果 MANIFEST 是新创建的，还需要更新 CURRENT。
         if (s.ok() && !new_manifest_file.empty()) {
             s = SetCurrentFile(env_, dbname_, manifest_file_number_);
         }
@@ -1022,6 +1066,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
 
     // Install the new version
     if (s.ok()) {
+        // 将生成的新 Version 加入 VersionSet。
         AppendVersion(v);
         log_number_ = edit->log_number_;
         prev_log_number_ = edit->prev_log_number_;
