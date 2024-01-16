@@ -17,6 +17,11 @@ class SequentialFile;
 
 namespace log {
 
+// log::Reader 是用来读取 log 文件的，
+// log 文件就是记录了一些列操作的文件，不是指 Debug Log。
+// leveldb 中只有 2 种 log 文件:
+//   - MANIFEST
+//   - WAL
 class Reader {
    public:
     // Interface for reporting errors.

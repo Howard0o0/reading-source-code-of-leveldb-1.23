@@ -1084,6 +1084,8 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
     return s;
 }
 
+// 从数据库中读取 CURRENT 文件，解析 MANIFEST文件，
+// 恢复数据库的状态(每层 Level 都有哪些 SST 文件)。
 Status VersionSet::Recover(bool* save_manifest) {
     struct LogReporter : public log::Reader::Reporter {
         Status* status;
@@ -1094,18 +1096,26 @@ Status VersionSet::Recover(bool* save_manifest) {
 
     // Read "CURRENT" file, which contains a pointer to the current manifest
     // file
+    //
+    // 读取 CURRENT 文件的内容，存放到 std::string current 中。
     std::string current;
     Status s = ReadFileToString(env_, CurrentFileName(dbname_), &current);
     if (!s.ok()) {
         return s;
     }
+    // 如果 CURRENT 文件为空，或者没有以 '\n' 结尾，说明 CURRENT 文件有问题，
+    // 返回失败。
     if (current.empty() || current[current.size() - 1] != '\n') {
         return Status::Corruption("CURRENT file does not end with newline");
     }
+    // 去掉 current 中的 '\n'。
     current.resize(current.size() - 1);
 
+    // current 中存放的是 MANIFEST 的文件名，例如 MANIFEST-000001。
+    // dscname 为 MANIFEST 的完整路径。
     std::string dscname = dbname_ + "/" + current;
     SequentialFile* file;
+    // 以顺序读取的方式打开 MANIFEST 文件。
     s = env_->NewSequentialFile(dscname, &file);
     if (!s.ok()) {
         if (s.IsNotFound()) {
@@ -1126,16 +1136,24 @@ Status VersionSet::Recover(bool* save_manifest) {
     int read_records = 0;
 
     {
+        // 构造一个 reader，用于读取 MANIFEST 文件。
         LogReporter reporter;
         reporter.status = &s;
         log::Reader reader(file, &reporter, true /*checksum*/, 0 /*initial_offset*/);
         Slice record;
         std::string scratch;
+        
+        // 读取 MANIFEST 文件中的每一条 Record，
+        // 把 Record 解码成一个 VersionEdit，
+        // 然后调用 builder.Apply(&edit) 将 edit 应用到 builder 中。
         while (reader.ReadRecord(&record, &scratch) && s.ok()) {
             ++read_records;
+
+            // 将 record 解码成 VersionEdit。
             VersionEdit edit;
             s = edit.DecodeFrom(record);
             if (s.ok()) {
+                // 检查解码出来的 VersionEdit.comparator 与当前数据库的 comparator 是否一致。
                 if (edit.has_comparator_ && edit.comparator_ != icmp_.user_comparator()->Name()) {
                     s = Status::InvalidArgument(
                         edit.comparator_ + " does not match existing comparator ",
@@ -1143,31 +1161,37 @@ Status VersionSet::Recover(bool* save_manifest) {
                 }
             }
 
+            // 将 VersionEdit 应用到 builder 中。
             if (s.ok()) {
                 builder.Apply(&edit);
             }
 
+            // 记录最新状态下的 WAL 编号。
             if (edit.has_log_number_) {
                 log_number = edit.log_number_;
                 have_log_number = true;
             }
 
+            // 记录最新状态下的 prev WAL 编号。
             if (edit.has_prev_log_number_) {
                 prev_log_number = edit.prev_log_number_;
                 have_prev_log_number = true;
             }
 
+            // 记录最新状态下的 next_file 编号。
             if (edit.has_next_file_number_) {
                 next_file = edit.next_file_number_;
                 have_next_file = true;
             }
 
+            // 记录最新状态下的 last_sequence 编号。
             if (edit.has_last_sequence_) {
                 last_sequence = edit.last_sequence_;
                 have_last_sequence = true;
             }
         }
     }
+    // 读取 MANIFEST 文件完毕，关闭文件。
     delete file;
     file = nullptr;
 
@@ -1184,14 +1208,17 @@ Status VersionSet::Recover(bool* save_manifest) {
             prev_log_number = 0;
         }
 
+        // 标记 next_file_number_ 和 log_number 都已经被占用了。
         MarkFileNumberUsed(prev_log_number);
         MarkFileNumberUsed(log_number);
     }
 
     if (s.ok()) {
+        // 基于 MANIFEST 里的 VersionEdit列表，构造一个新的 Version。
         Version* v = new Version(this);
         builder.SaveTo(v);
         // Install recovered version
+        // 把 New Version 作为当前 Version。
         Finalize(v);
         AppendVersion(v);
         manifest_file_number_ = next_file;
@@ -1201,9 +1228,11 @@ Status VersionSet::Recover(bool* save_manifest) {
         prev_log_number_ = prev_log_number;
 
         // See if we can reuse the existing MANIFEST file.
+        // 检查是否可以继续使用当前的 MANIFEST 文件。
         if (ReuseManifest(dscname, current)) {
             // No need to save new manifest
         } else {
+            // 如果不能继续使用的话，需要把当前的 MANIFEST 进行保存。
             *save_manifest = true;
         }
     } else {
@@ -1215,6 +1244,7 @@ Status VersionSet::Recover(bool* save_manifest) {
     return s;
 }
 
+// 检查指定的 MANIFEST 是否还能继续使用。
 bool VersionSet::ReuseManifest(const std::string& dscname, const std::string& dscbase) {
     if (!options_->reuse_logs) {
         return false;
@@ -1245,6 +1275,12 @@ bool VersionSet::ReuseManifest(const std::string& dscname, const std::string& ds
 }
 
 void VersionSet::MarkFileNumberUsed(uint64_t number) {
+    // 如果 number 小于 next_file_number_，那 number 肯定
+    // 已经被分出去使用了，所以啥也不需要干。
+    // 只有 number > = next_file_number_ 时，为了防止将来
+    // NewFileNumber() 返回 number，需要把 next_file_number_
+    // 拨到 number + 1，这样 NewFileNumber() 后面就永远不会
+    // 返回 number。
     if (next_file_number_ <= number) {
         next_file_number_ = number + 1;
     }
@@ -1345,20 +1381,33 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
     for (int level = 0; level < config::kNumLevels; level++) {
         const std::vector<FileMetaData*>& files = v->files_[level];
         for (size_t i = 0; i < files.size(); i++) {
+            // 遍历版本 v 的每个 SST file
+
             if (icmp_.Compare(files[i]->largest, ikey) <= 0) {
                 // Entire file is before "ikey", so just add the file size
+                // 
+                // 当前 SST 文件所有的 key 都小于 ikey，所以直接把
+                // 整个 SST 文件的大小加到 result 中。
                 result += files[i]->file_size;
             } else if (icmp_.Compare(files[i]->smallest, ikey) > 0) {
                 // Entire file is after "ikey", so ignore
+                // 
+                // 当前 SST 文件所有的 key 都大于 ikey，忽略该文件。
                 if (level > 0) {
                     // Files other than level 0 are sorted by meta->smallest, so
                     // no further files in this level will contain data for
                     // "ikey".
+                    // 
+                    // 如果当前在非 level-0 上，则该 level 上的 SST 是有序且不重合的，
+                    // 碰到一个 SST 已经整体大于 ikey，那么后面的 SST 都不会包含 ikey，
+                    // 可以不用往后看了。
                     break;
                 }
             } else {
                 // "ikey" falls in the range for this table.  Add the
                 // approximate offset of "ikey" within the table.
+                // 
+                // 当前 SST 文件包含 ikey，计算 ikey 在 SST 文件中的大致偏移量。
                 Table* tableptr;
                 Iterator* iter = table_cache_->NewIterator(ReadOptions(), files[i]->number,
                                                            files[i]->file_size, &tableptr);
@@ -1393,6 +1442,9 @@ int64_t VersionSet::NumLevelBytes(int level) const {
 int64_t VersionSet::MaxNextLevelOverlappingBytes() {
     int64_t result = 0;
     std::vector<FileMetaData*> overlaps;
+
+    // 计算每个 level 上的每个 SST 文件与下一层 level 的 overlap 大小，
+    // 返回最大的那个 overlap 大小。
     for (int level = 1; level < config::kNumLevels - 1; level++) {
         for (size_t i = 0; i < current_->files_[level].size(); i++) {
             const FileMetaData* f = current_->files_[level][i];
@@ -1449,12 +1501,20 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
     // Level-0 files have to be merged together.  For other levels,
     // we will make a concatenating iterator per level.
     // TODO(opt): use concatenating iterator for level-0 if there is no overlap
+    //
+    // 如果要进行 Compaction 的 level 是 0，那么需要把 level 0 中每个 SST 都
+    // 要创建一个 Iterator，level + 1 层只需要创建一个 Concatenating Iterator。
+    // 所以需要的 Iterator 数量为 c->inputs_[0].size() + 1。
+    // 如果要进行 Compaction 的 level 不是 0，那么只需要 2 个 Concatenating
+    // Iterator。
     const int space = (c->level() == 0 ? c->inputs_[0].size() + 1 : 2);
     Iterator** list = new Iterator*[space];
     int num = 0;
     for (int which = 0; which < 2; which++) {
         if (!c->inputs_[which].empty()) {
             if (c->level() + which == 0) {
+                // 如果 Compaction level 是 0，并且 which 为 0。
+                // 为每个 level 0 的 SST 创建一个 Iterator。
                 const std::vector<FileMetaData*>& files = c->inputs_[which];
                 for (size_t i = 0; i < files.size(); i++) {
                     list[num++] =
@@ -1462,6 +1522,8 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
                 }
             } else {
                 // Create concatenating iterator for the files from this level
+                // 
+                // 为当前 level 创建一个 Concatenating Iterator。
                 list[num++] = NewTwoLevelIterator(
                     new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]), &GetFileIterator,
                     table_cache_, options);
@@ -1469,6 +1531,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
         }
     }
     assert(num <= space);
+    // 把 list 里的 Iterator 合并成一个 MergingIterator。
     Iterator* result = NewMergingIterator(&icmp_, list, num);
     delete[] list;
     return result;
@@ -1477,28 +1540,41 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
 /* 选择最终要执行的 Compaction 类型: Size Compaction or Seek Compaction */
 Compaction* VersionSet::PickCompaction() {
     Compaction* c;
+    // 要进行 Compaction 的 level。
     int level;
 
     // We prefer compactions triggered by too much data in a level over
     // the compactions triggered by seeks.
+    //
+    // current_->compaction_score_ 为所有 level 中最大的 score。
+    // score = 当前 level 所有 SST 总大小 / 此 level 阈值。
+    // current_->compaction_score 的值是在调用`VersionSet::Finalize(Version* v)`
+    // 的时候计算出来的。
+    // current->file_to_compact_ 表示某个 SST 被读取的次数已经达到了阈值，需要进行
+    // Compaction。
+    // current->file_to_compact_ 的值是在`Version::UpdateStats`的时候更新的。
     const bool size_compaction = (current_->compaction_score_ >= 1);
     const bool seek_compaction = (current_->file_to_compact_ != nullptr);
 
-    /* 优先级: size_compaction > seek_compaction */
+    // 优先级: size_compaction > seek_compaction 。
+    // 如果满足 size_compaction，那么优先执行 size_compaction。
     if (size_compaction) {
-        level = current_->compaction_level_; /* 获取待 Compact 的 level */
+        // 获取需要进行 Compaction 的 level。
+        level = current_->compaction_level_; 
         assert(level >= 0);
         assert(level + 1 < config::kNumLevels);
+
+        // 创建一个 Compaction 对象 c。
         c = new Compaction(options_, level);
 
-        /* Pick the first file that comes after compact_pointer_[level]
-         * 遍历 files_[level] 所有 SSTable */
+        // 从 files_[level] 里找到 compact_pointer_[level] 之后的第一个 SST，
+        // 作为本次需要进行 Compaction 的 SST，放到 c->inputs_[0] 中。
+        // compact_pointer_[level] 的含义是 level 层上一次参与 Compaction 
+        // 的 SST 的最大 InternalKey。
         for (size_t i = 0; i < current_->files_[level].size(); i++) {
-            /* 取得每一个 SSTable 的  FileMetaData*/
+
             FileMetaData* f = current_->files_[level][i];
 
-            /* 获取第一个 Largest InternalKey > compact_pointer_[level] 的文件
-             */
             if (compact_pointer_[level].empty() ||
                 icmp_.Compare(f->largest.Encode(), compact_pointer_[level]) > 0) {
                 c->inputs_[0].push_back(f);
@@ -1506,38 +1582,52 @@ Compaction* VersionSet::PickCompaction() {
             }
         }
 
-        /* 遍历完所有文件都没有找到合适的 SSTable 时，就默认使用第一个文件进行
-         * Compact */
+        // 上面找不到 SST，表示 level 层上还没有 SST 参与过 Compaction，
+        // 那本次就选择 level 层上的第一个 SST 参与 Compaction。
         if (c->inputs_[0].empty()) {
             // Wrap-around to the beginning of the key space
             c->inputs_[0].push_back(current_->files_[level][0]);
         }
     } else if (seek_compaction) {
+        // 不满足 size_compaction，但满足 seek_compaction，那么执行 seek_compaction。
+
+        // 获取需要进行 Compaction 的 level。
         level = current_->file_to_compact_level_;
+        // 创建一个 Compaction 对象 c。
         c = new Compaction(options_, level);
+        // 把要进行 Compaction 的 SST 放到 c->inputs_[0] 中。
         c->inputs_[0].push_back(current_->file_to_compact_);
     } else {
+        // 不满足 size_compaction，也不满足 seek_compaction，
+        // 所以不需要进行 Compaction。
         return nullptr;
     }
 
+    // 把需要进行 Compaction 的 version 设置到 c->input_version_ 中。
     c->input_version_ = current_;
+    // 把 c->input_version_ 的引用计数加 1，防止被销毁。
     c->input_version_->Ref();
 
-    /* Files in level 0 may overlap each other, so pick up all overlapping ones
-     * 注意，我们需要对 level 0 进行特殊处理，因为 level 0 之间的 SSTable
-     * 可能会出现 key 的重叠， 而 inputs_[0]
-     * 中的文件应和本层其它文件之间没有任何的 Key 重叠。*/
+    // 如果要进行 Compaction 的 level 是 0，那么需要把 level 0 中所有与
+    // 本次要进行 Compaction 的 SST 有重叠的 SST 都放到 c->inputs_[0] 中，
+    // 做为本次 Compaction 的输入。
     if (level == 0) {
-        /* 取得 inputs_[0] 中所有 file 的最小 InternalKey 和最大 InternalKey */
+        // 取得 inputs_[0] 中所有 SST 里的最小 InternalKey 和最大 InternalKey
         InternalKey smallest, largest;
         GetRange(c->inputs_[0], &smallest, &largest);
         // Note that the next call will discard the file we placed in
         // c->inputs_[0] earlier and replace it with an overlapping set
         // which will include the picked file.
+        //
+        // 在 level-0 层中查找哪些 SST 与 [smallest, largest] 有重叠，
+        // 把它们都放到 c->inputs_[0] 中。
         current_->GetOverlappingInputs(0, &smallest, &largest, &c->inputs_[0]);
         assert(!c->inputs_[0].empty());
     }
 
+    // c->inputs_[0] 表示 level K 将要进行 Compact 的 sst files，
+    // c->inputs_[1] 表示 level K+1 将要进行 Compact 的 sst files。
+    // SetupOtherInputs(c) 会根据 c->inputs_[0] 来确定 c->inputs_[1]。
     SetupOtherInputs(c);
 
     return c;
@@ -1596,63 +1686,114 @@ FileMetaData* FindSmallestBoundaryFile(const InternalKeyComparator& icmp,
 // parameters:
 //   in     level_files:      List of files to search for boundary files.
 //   in/out compaction_files: List of files to extend by adding boundary files.
+//
+// 假设有两个 SST 位于同一层。 SST-1 的范围是 [key1, key3], 
+// SST-2 的范围是 [key3, key5]。那么如果 SST-1 在 compaction_files 里，
+// 但是 SST-2 不在，就可能会有问题。因为如果 SST-1 里的 key3 是最新的，
+// 只把 SST-1 进行 Compaction 下沉到 level+1，那么在查询 key3 的时候，
+// 就会返回 SST-2 里的 key3，而不是 SST-1 里的 key3。
 void AddBoundaryInputs(const InternalKeyComparator& icmp,
                        const std::vector<FileMetaData*>& level_files,
                        std::vector<FileMetaData*>* compaction_files) {
     InternalKey largest_key;
 
     // Quick return if compaction_files is empty.
+    // 
+    // 先找到 compaction_files 里的 largest_key.
     if (!FindLargestKey(icmp, *compaction_files, &largest_key)) {
         return;
     }
 
     bool continue_searching = true;
     while (continue_searching) {
+
+        // 寻找一个 smallest_user_key == largest_key.user_key() 
+        // 的后继 SST，
         FileMetaData* smallest_boundary_file =
             FindSmallestBoundaryFile(icmp, level_files, largest_key);
 
         // If a boundary file was found advance largest_key, otherwise we're
         // done.
         if (smallest_boundary_file != NULL) {
+            // 找到这个后继 SST 了，把它加入到 compaction_files 中。
+            // 并且把 largest_key 更新为这个后继 SST 的 largest_key，
+            // 继续寻找下一个后继 SST。
             compaction_files->push_back(smallest_boundary_file);
             largest_key = smallest_boundary_file->largest;
         } else {
+            // 找不到后继 SST，可以直接结束了。
             continue_searching = false;
         }
     }
 }
 
-/* 本质上是确定 inputs_[1] */
+// 根据 c->inputs_[0] 来确定 c->inputs_[1]。
+// c->inputs_[0] 表示 level K 将要进行 Compact 的 sst files，
+// c->inputs_[1] 表示 level K+1 将要进行 Compact 的 sst files。
 void VersionSet::SetupOtherInputs(Compaction* c) {
     const int level = c->level();
     InternalKey smallest, largest;
 
+    // 扩大 c->inputs_[0] 里的 SST 集合。
+    // 规则如下：
+    //     假设 c->inputs_[0] 里有两个 SST，分别是 SST-1 和 SST-2。
+    //     如果 level 上存在一个 SST，它的 smallest_user_key 与
+    //     c_inputs_[0] 的 largest_user_key 相等，那么把这个 SST
+    //     称为 Boundary SST。
+    //     不断的把 Boundary SST 加入到 c->inputs_[0] 中，再继续查找
+    //     新的 Boundary SST，直到找不到为止。
     AddBoundaryInputs(icmp_, current_->files_[level], &c->inputs_[0]);
+    // 获取 c->inputs_[0] 的 key 范围，也就是 level 层要进行 Compaction 的范围。
     GetRange(c->inputs_[0], &smallest, &largest);
 
+    // 在 level+1 层查找与 c->inputs_[0] 有重叠的 SST，放到 c->inputs_[1] 中。
     current_->GetOverlappingInputs(level + 1, &smallest, &largest, &c->inputs_[1]);
+    // 以同样的方式，扩大 c->inputs_[1] 里的 SST 集合。
     AddBoundaryInputs(icmp_, current_->files_[level + 1], &c->inputs_[1]);
 
     // Get entire range covered by compaction
+    //
+    // 获取整体的 compaction 范围, [all_start, all_limit]
     InternalKey all_start, all_limit;
     GetRange2(c->inputs_[0], c->inputs_[1], &all_start, &all_limit);
 
     // See if we can grow the number of inputs in "level" without
     // changing the number of "level+1" files we pick up.
+    // 
+    // 如果 level+1 层有需要 Compaction 的 SST，那么就尝试把 level 层的 
+    // Compaction SST 扩大，但是不能导致 level+1 层的 Compaction SST 数量变多。
     if (!c->inputs_[1].empty()) {
         std::vector<FileMetaData*> expanded0;
+        // 找出 level 层所有与 [all_start, all_limit] 有重叠的 SST，
+        // 放到 expanded0 中。
         current_->GetOverlappingInputs(level, &all_start, &all_limit, &expanded0);
+        // 在 level 层寻找 expanded0 的 Boundary SST，放到 expanded0 中。
         AddBoundaryInputs(icmp_, current_->files_[level], &expanded0);
+
+        // 计算 level 层的 Compaction SST 总大小.
         const int64_t inputs0_size = TotalFileSize(c->inputs_[0]);
+        // 计算 level+1 层的 Compaction SST 总大小.
         const int64_t inputs1_size = TotalFileSize(c->inputs_[1]);
+        // 计算 expanded0 的总大小。
         const int64_t expanded0_size = TotalFileSize(expanded0);
+
+        // 如果 expanded0 的总大小比 c->inputs_[0] 的总大小大，并且
+        // expanded0 和 c->inputs_[1] 的 SST 数量总和小于阈值，
+        // 就可以考虑把 expanded0 作为 level 层的 Compaction SST。
         if (expanded0.size() > c->inputs_[0].size() &&
             inputs1_size + expanded0_size < ExpandedCompactionByteSizeLimit(options_)) {
             InternalKey new_start, new_limit;
+            // 获取 expanded0 的 key 范围, [new_start, new_limit]。
             GetRange(expanded0, &new_start, &new_limit);
+            // 根据 expanded0 的范围，获取 level+1 层的 Compaction SST，
+            // 作为 expanded1。
             std::vector<FileMetaData*> expanded1;
             current_->GetOverlappingInputs(level + 1, &new_start, &new_limit, &expanded1);
             AddBoundaryInputs(icmp_, current_->files_[level + 1], &expanded1);
+
+            // 如果 expanded1 里 SST 的数量和最开始算出来的 level+1 层的
+            // Compaction SST 数量一样，那么就可以把 expanded0 和 expanded1
+            // 分别作为 level 和 level+1 层的 Compaction SST。
             if (expanded1.size() == c->inputs_[1].size()) {
                 Log(options_->info_log,
                     "Expanding@%d %d+%d (%ld+%ld bytes) to %d+%d (%ld+%ld "
@@ -1671,6 +1812,9 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
 
     // Compute the set of grandparent files that overlap this compaction
     // (parent == level+1; grandparent == level+2)
+    // 
+    // 计算 level+2 层所有与 [all_start, all_limit] 有重叠的 SST，
+    // 放到 c->grandparents_ 中。
     if (level + 2 < config::kNumLevels) {
         current_->GetOverlappingInputs(level + 2, &all_start, &all_limit, &c->grandparents_);
     }
@@ -1679,11 +1823,15 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
     // We update this immediately instead of waiting for the VersionEdit
     // to be applied so that if the compaction fails, we will try a different
     // key range next time.
+    // 
+    // 设置 compact_pointer_[level]，表示 level 层下一次 Compaction 的起始位置。
     compact_pointer_[level] = largest.Encode().ToString();
     c->edit_.SetCompactPointer(level, largest);
 }
 
 Compaction* VersionSet::CompactRange(int level, const InternalKey* begin, const InternalKey* end) {
+    
+    // 获取 level 层所有与 [begin, end] 有重叠的 SST，放到 inputs 中。
     std::vector<FileMetaData*> inputs;
     current_->GetOverlappingInputs(level, begin, end, &inputs);
     if (inputs.empty()) {
@@ -1694,6 +1842,10 @@ Compaction* VersionSet::CompactRange(int level, const InternalKey* begin, const 
     // But we cannot do this for level-0 since level-0 files can overlap
     // and we must not pick one file and drop another older file if the
     // two files overlap.
+    // 
+    // 对于非 level-0 层，需要检查下 inputs 里 SST 文件大小的总和。
+    // 如果 inputs 里 SST 文件大小的总和超过了阈值，那么就需要把 inputs
+    // 进行裁剪，只保留一部分 SST。
     if (level > 0) {
         const uint64_t limit = MaxFileSizeForLevel(options_, level);
         uint64_t total = 0;
@@ -1707,10 +1859,13 @@ Compaction* VersionSet::CompactRange(int level, const InternalKey* begin, const 
         }
     }
 
+    // 把 inputs 里的 SST 放到 c->inputs_[0] 中。
     Compaction* c = new Compaction(options_, level);
     c->input_version_ = current_;
     c->input_version_->Ref();
     c->inputs_[0] = inputs;
+
+    // 根据 c->inputs_[0] 来填充 c->inputs_[1]。
     SetupOtherInputs(c);
     return c;
 }

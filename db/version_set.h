@@ -248,6 +248,11 @@ class VersionSet {
     // 调用VersionSet::ReuseFileNumber方法来重复使用该SST文件的编号，
     // 而不是浪费一个新的编号。
     void ReuseFileNumber(uint64_t file_number) {
+        // 假设上一次 NewFileNumer() 分配的编号为 100，同时
+        // next_file_number_ 会更新为 101。
+        // 上次分出去的编号 100 用不到了，使用 ReuseFileNumber(100)
+        // 进行回收，就把 next_file_number_ 回退为 100 就行。
+        // 这样下次 NewFileNumer() 又会把 100 分出去。
         if (next_file_number_ == file_number + 1) {
             next_file_number_ = file_number;
         }
@@ -312,7 +317,7 @@ class VersionSet {
     // level that overlaps the specified range.  Caller should delete
     // the result.
     //
-    // 指定 Level 和一个范围 [begin, end]，返回一个 Compaction 对象，
+    // 指定 Level 和一个范围 [begin, end]，返回一个 Compaction 对象。
     Compaction* CompactRange(int level, const InternalKey* begin, const InternalKey* end);
 
     // Return the maximum overlapping data (in bytes) at next level for any

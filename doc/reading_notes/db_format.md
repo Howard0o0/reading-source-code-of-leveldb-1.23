@@ -342,3 +342,71 @@ Index Block 存储的是 Data Block 的索引。类似的，Meta Index Block 存
 
 - **Magic Number（魔数）**:
    - 一个特定的数字，用于标识文件的类型和格式。这对于文件格式的正确识别和验证非常重要。
+
+## MANIFEST
+
+MANIFEST 由多个 Record 组成:
+
+```plaintext
++-------------------+
+|   Record 1        |
++-------------------+
+|   Record 2        |
++-------------------+
+|   ...             |
++-------------------+
+|   Record N        |
++-------------------+
+```
+
+每个 Record 都代表着一个 VersionEdit，可以通过`VersionEdit::DecodeFrom(const Slice& Record)`方法将 Record 解析为 VersionEdit 对象。
+
+```c++
+// 假设我们已经读取了一个 Record，放在 record 中。
+// 通过 DecodeFrom() 方法，我们可以将 record 解析为 VersionEdit 对象。
+VersionEdit edit;
+s = edit.DecodeFrom(record);
+```
+
+### Record
+
+Record 的格式如下：
+
+```plaintext
++-------------------+-------------------+-------------------+-------------------+
+|   Tag (1 byte)    |   Key (varint)    |   Value (varint)  |   ...             |
++-------------------+-------------------+-------------------+-------------------+
+```
+
+Record 可包含多组 Tag-Key-Value，每组代表一个操作，比如增加一个文件、删除一个文件等。Tag 用于标识操作的类型，Key 和 Value 分别是操作的键和值。Tag、Key 和 Value 都是变长整数（varint）类型。
+
+Tag 表示操作的类型，取值如下：
+
+```c++
+enum Tag {
+  kComparator = 1,
+  kLogNumber = 2,
+  kNextFileNumber = 3,
+  kLastSequence = 4,
+  kCompactPointer = 5,
+  kDeletedFile = 6,
+  kNewFile = 7,
+};
+```
+
+各个取值含义如下:
+
+- `kComparator`: 此时 Key 为空，Value 表示 Comparator 的名称。
+- `kLogNumber`: 此时 Key 为空，Value 表示当前日志文件的编号。
+- `kNextFileNumber`: 此时 Key 为空，Value 表示下一个 SST 文件的编号。
+- `kLastSequence`: 此时 Key 为空，Value 表示最后一个 Sequence Number。
+- `kCompactPointer`: Key 是一个用 varint32 表示的 level，Value 表示 Compact Pointer。Compact Pointer 是一个 Internal Key，为该 level 上一次参与 Compaction 的 SST 里最大的 Key。
+- `kDeletedFile`: Key 是一个用 varint32 表示的 level，Value 是一个 varint64 表示的 SST 编号。
+- `kNewFile`: Key 是一个用 varint32 表示的 level，Value 是一个 FileMetaData 对象的序列化结果。
+
+FileMetaData 的格式如下:
+```plaintext
++-------------------+-------------------+-------------------+-------------------+
+|   Number (varint) |  FileSize (varint)|   Smallest Key    |   Largest Key     |
++-------------------+-------------------+-------------------+-------------------+
+```

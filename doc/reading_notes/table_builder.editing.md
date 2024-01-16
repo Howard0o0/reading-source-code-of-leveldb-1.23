@@ -219,7 +219,7 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
 
 `r->index_block.Add(r->last_key, Slice(handle_encoding))`的实现详情请移步[大白话解析LevelDB: BlockBuilder](https://blog.csdn.net/sinat_38293503/article/details/134997464#BlockBuilderAddconst_Slice_key_const_Slice_value_41)。
 
-`r->filter_block->AddKey(key)`的实现详情请移步[大白话解析LevelDB: FilterBlockBuilder](https://blog.csdn.net/sinat_38293503/article/details/135042949#FilterBlockBuilderAddKeyconst_Slice_key_35)。
+`r->filter_block->AddKey(key)`的实现详情请移步[大白话解析LevelDB: FilterBlockBuilder](TODO)。
 
 `r->data_block.Add(key, value);`的实现详情请移步[大白话解析LevelDB: BlockBuilder](https://blog.csdn.net/sinat_38293503/article/details/134997464#BlockBuilderAddconst_Slice_key_const_Slice_value_41)。
 

@@ -28,6 +28,9 @@ class Slice;
  * Bloom Filter FilterPolicy 一共就两个接口: CreateFilter 和
  * KeyMayMatch。前者将已排好序的 User Key 添加到 dst 字符串中，而 KeyMayMatch
  * 则是判断 key 是否在 Bloom Filter 中。*/
+// Filter 接口类，只有两个方法：
+//   - CreateFilter：为 keys 中的所有 key 创建一个 filter，将 filter 编码后压入 dst 里。
+//   - KeyMayMatch：判断 key 是否在 filter 中。
 class LEVELDB_EXPORT FilterPolicy {
    public:
     virtual ~FilterPolicy();
@@ -44,6 +47,8 @@ class LEVELDB_EXPORT FilterPolicy {
     //
     // Warning: do not change the initial contents of *dst.  Instead,
     // append the newly constructed filter to *dst.
+    //
+    // 为 keys 中的所有 key 创建一个 filter，将 filter 编码后压入 dst 里。
     virtual void CreateFilter(const Slice* keys, int n, std::string* dst) const = 0;
 
     // "filter" contains the data appended by a preceding call to
@@ -51,6 +56,8 @@ class LEVELDB_EXPORT FilterPolicy {
     // the key was in the list of keys passed to CreateFilter().
     // This method may return true or false if the key was not on the
     // list, but it should aim to return false with a high probability.
+    //
+    // 判断 key 是否在 filter 中。
     virtual bool KeyMayMatch(const Slice& key, const Slice& filter) const = 0;
 };
 
