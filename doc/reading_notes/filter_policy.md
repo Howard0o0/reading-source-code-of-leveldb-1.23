@@ -100,3 +100,37 @@ void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
 
 ### BloomFilterPolicy::KeyMayMatch(const Slice& key, const Slice& bloom_filter)
 
+给定一个`BloomFilterPolicy::CreateFilter`创建出来的`bloom_filter`，判断一个`key`是否在`bloom_filter`中。
+
+```c++
+bool KeyMayMatch(const Slice& key, const Slice& bloom_filter) const override {
+    // len 为该 bloom_filter 的长度，bit 数。
+    const size_t len = bloom_filter.size();
+    // 当 bloom_filter 的长度小于 2 时，该 bloom_filter 是无效的。
+    if (len < 2) return false;
+
+    const char* array = bloom_filter.data();
+    // len - 1 是因为 array 里的最后一个字节是 k_。
+    const size_t bits = (len - 1) * 8;
+
+    // 取出该 bloom_filter 的 k_ 值，以供解码 bloom_filter 使用。
+    const size_t k = array[len - 1];
+    if (k > 30) {
+        // 当前版本的 bloom_filter 不支持 k_ > 30，但是未来可能会支持。
+        // 如果用老版本的 bloom_filter 解析未来新版的 bloom_filter，
+        // 则直接返回 true，当成是 false-positive 的情况。
+        return true;
+    }
+
+    // 用与 CreateFilter 同样的 double-hashing 算法计算出 key 的 hash 值，
+    // 检查对应的 bit 是否都为 1。
+    uint32_t h = BloomHash(key);
+    const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
+    for (size_t j = 0; j < k; j++) {
+        const uint32_t bitpos = h % bits;
+        if ((array[bitpos / 8] & (1 << (bitpos % 8))) == 0) return false;
+        h += delta;
+    }
+    return true;
+}
+```
