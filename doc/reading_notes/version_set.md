@@ -591,10 +591,7 @@ Status VersionSet::Recover(bool* save_manifest) {
 }
 ```
 
-`edit.DecodeFrom(record)`的实现可参考[TODO](TODO)
-
-`reader.ReadRecord(&record, &scratch)`的实现可参考[TODO](TODO)
-
+`edit.DecodeFrom(record)`的实现可参考[大白话解析LevelDB: VersionEdit](https://blog.csdn.net/sinat_38293503/article/details/135661654?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22135661654%22%2C%22source%22%3A%22sinat_38293503%22%7D#VersionEditDecodeFromconst_Slice_src_174)
 
 ### VersionSet::current()
 
@@ -751,8 +748,6 @@ uint64_t PrevLogNumber() const { return prev_log_number_; }
 
 - 要对哪个 Level 进行 Compaction
 - 参与 Compaction 的 SST 文件集合
-
-`Compaction`的定义可移步参考[TODO][TODO]。
 
 ```c++
 Compaction* VersionSet::PickCompaction() {
