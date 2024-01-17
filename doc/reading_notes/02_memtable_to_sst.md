@@ -1,6 +1,6 @@
-# MemTable落盘为SST文件
+# MemTable 落盘为 SST 文件
 
-- [MemTable落盘为SST文件](#memtable落盘为sst文件)
+- [MemTable 落盘为 SST 文件](#memtable-落盘为-sst-文件)
   - [什么是`Compact MemTable`](#什么是compact-memtable)
   - [什么时候触发`Compact MemTable`](#什么时候触发compact-memtable)
   - [如何触发`Compact MemTable`](#如何触发compact-memtable)
@@ -642,7 +642,7 @@ void DBImpl::CompactMemTable() {
 }
 ```
 
-`versions_->LogAndApply(&edit, &mutex_)`的具体实现可移步[TODO](TODO)
+`versions_->LogAndApply(&edit, &mutex_)`的具体实现可移步[大白话解析LevelDB: VersionSet](https://blog.csdn.net/sinat_38293503/article/details/135661973?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22135661973%22%2C%22source%22%3A%22sinat_38293503%22%7D#VersionSetLogAndApplyVersionEdit_edit_portMutex_mu_135)
 
 ### 清理不再需要的资源
 
