@@ -1,44 +1,118 @@
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
+# VersionEdit
 
-#include "db/version_edit.h"
+LevelDB 在进行 Compaction 的过程中，会增加一些 SST 并且删除一些 SST，这些操作都会引起数据库状态的变化。
 
-#include "db/version_set.h"
+每个数据库状态都对应一个 Version 版本，Version 里对应的数据库状态，也就是每层 level 里都有哪些 SST 文件。
 
-#include "util/coding.h"
+VersionEdit 就是用来记录两个 Version 版本之间的变化的。`Version N + VersionEdit = Version N+1`。
 
-namespace leveldb {
+```c++
+class VersionEdit {
+   public:
+    VersionEdit() { Clear(); }
+    ~VersionEdit() = default;
 
-// Tag numbers for serialized VersionEdit.  These numbers are written to
-// disk and should not be changed.
-enum Tag {
-    kComparator = 1,
-    kLogNumber = 2,
-    kNextFileNumber = 3,
-    kLastSequence = 4,
-    kCompactPointer = 5,
-    kDeletedFile = 6,
-    kNewFile = 7,
-    // 8 was used for large value refs
-    kPrevLogNumber = 9
+    void Clear();
+
+    // 设置 Comparactor Name，默认为 leveldb.BytewiseComparator 
+    void SetComparatorName(const Slice& name) {
+        has_comparator_ = true;
+        comparator_ = name.ToString();
+    }
+
+    // 设置对应的 WAL 编号
+    void SetLogNumber(uint64_t num) {
+        has_log_number_ = true;
+        log_number_ = num;
+    }
+
+    // 设置前一个 WAL 编号
+    void SetPrevLogNumber(uint64_t num) {
+        has_prev_log_number_ = true;
+        prev_log_number_ = num;
+    }
+
+    // 设置下一个文件编号
+    void SetNextFile(uint64_t num) {
+        has_next_file_number_ = true;
+        next_file_number_ = num;
+    }
+
+    // 设置最大的 SequenceNumber
+    void SetLastSequence(SequenceNumber seq) {
+        has_last_sequence_ = true;
+        last_sequence_ = seq;
+    }
+
+    // 设置 level 层本次进行 Compaction 的最后一个 InternalKey
+    // 也就是下一次进行 Compaction 的起始 InternalKey。
+    void SetCompactPointer(int level, const InternalKey& key) {
+        compact_pointers_.push_back(std::make_pair(level, key));
+    }
+
+    // 将一个 SST(MetaData)添加到 VersionEdit 中
+    void AddFile(int level, uint64_t file, uint64_t file_size, const InternalKey& smallest,
+                 const InternalKey& largest) {
+        // 创建一个 FileMetaData 对象，
+        // 将 number, file_size, smallest, largest 赋值给 FileMetaData 对象
+        FileMetaData f;
+        f.number = file;
+        f.file_size = file_size;
+        f.smallest = smallest;
+        f.largest = largest;
+
+        // 将该 FileMetaData 对象添加到 VersionEdit::new_files_ 中
+        new_files_.push_back(std::make_pair(level, f));
+    }
+
+    // 从 level 层中移除一个 SST
+    void RemoveFile(int level, uint64_t file) {
+        deleted_files_.insert(std::make_pair(level, file));
+    }
+
+    // VersionEdit 会被序列化成 string，然后写入到 MANIFEST 文件中。
+    // 或者从 MANIFEST 文件中读取出来，反序列化成 VersionEdit。
+
+    // 将 VersionEdit 序列化成 string
+    void EncodeTo(std::string* dst) const;
+    // 将 string 反序列化成 VersionEdit
+    Status DecodeFrom(const Slice& src);
+
+    std::string DebugString() const;
+
+   private:
+    friend class VersionSet;
+
+    /* 其中的 pair 为 level + 文件编号，表示被删除的 .ldb 文件 */
+    typedef std::set<std::pair<int, uint64_t>> DeletedFileSet;
+
+    std::string comparator_;       // Comparator 名称 
+    uint64_t log_number_;          // 当前对应的 WAL 编号 
+    uint64_t prev_log_number_;     // 前一个 WAL 编号 
+    uint64_t next_file_number_;    // 下一个文件编号 
+    SequenceNumber last_sequence_; // 最大序列号 
+
+    bool has_comparator_; // 上面 5 个变量的 Exist 标志位
+    bool has_log_number_;
+    bool has_prev_log_number_;
+    bool has_next_file_number_;
+    bool has_last_sequence_;
+
+    // 记录某一层下一次进行 Compaction 的起始 InternalKey 
+    std::vector<std::pair<int, InternalKey>> compact_pointers_;
+
+    DeletedFileSet deleted_files_; // 记录哪些文件被删除了 
+
+    // 记录哪一层新增了哪些 SST 文件，使用 FileMetaData 来表示一个 SST
+    std::vector<std::pair<int, FileMetaData>> new_files_;
 };
+```
 
-void VersionEdit::Clear() {
-    comparator_.clear();
-    log_number_ = 0;
-    prev_log_number_ = 0;
-    last_sequence_ = 0;
-    next_file_number_ = 0;
-    has_comparator_ = false;
-    has_log_number_ = false;
-    has_prev_log_number_ = false;
-    has_next_file_number_ = false;
-    has_last_sequence_ = false;
-    deleted_files_.clear();
-    new_files_.clear();
-}
+## VersionEdit::EncodeTo(std::string* dst)
 
+将 VersionEdit 序列化成 string，然后写入到 MANIFEST 文件中。
+
+```c++
 void VersionEdit::EncodeTo(std::string* dst) const {
     // 将 Comparator Name 压入 dst
     if (has_comparator_) {
@@ -95,26 +169,13 @@ void VersionEdit::EncodeTo(std::string* dst) const {
         PutLengthPrefixedSlice(dst, f.largest.Encode());
     }
 }
+```
 
-static bool GetInternalKey(Slice* input, InternalKey* dst) {
-    Slice str;
-    if (GetLengthPrefixedSlice(input, &str)) {
-        return dst->DecodeFrom(str);
-    } else {
-        return false;
-    }
-}
+## VersionEdit::DecodeFrom(const Slice& src)
 
-static bool GetLevel(Slice* input, int* level) {
-    uint32_t v;
-    if (GetVarint32(input, &v) && v < config::kNumLevels) {
-        *level = v;
-        return true;
-    } else {
-        return false;
-    }
-}
+没啥好说的，按照`VersionEdit::EncodeTo()`的逆过程来做就行了。
 
+```c++
 Status VersionEdit::DecodeFrom(const Slice& src) {
     Clear();
     Slice input = src;
@@ -213,57 +274,4 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
     }
     return result;
 }
-
-std::string VersionEdit::DebugString() const {
-    std::string r;
-    r.append("VersionEdit {");
-    if (has_comparator_) {
-        r.append("\n  Comparator: ");
-        r.append(comparator_);
-    }
-    if (has_log_number_) {
-        r.append("\n  LogNumber: ");
-        AppendNumberTo(&r, log_number_);
-    }
-    if (has_prev_log_number_) {
-        r.append("\n  PrevLogNumber: ");
-        AppendNumberTo(&r, prev_log_number_);
-    }
-    if (has_next_file_number_) {
-        r.append("\n  NextFile: ");
-        AppendNumberTo(&r, next_file_number_);
-    }
-    if (has_last_sequence_) {
-        r.append("\n  LastSeq: ");
-        AppendNumberTo(&r, last_sequence_);
-    }
-    for (size_t i = 0; i < compact_pointers_.size(); i++) {
-        r.append("\n  CompactPointer: ");
-        AppendNumberTo(&r, compact_pointers_[i].first);
-        r.append(" ");
-        r.append(compact_pointers_[i].second.DebugString());
-    }
-    for (const auto& deleted_files_kvp : deleted_files_) {
-        r.append("\n  RemoveFile: ");
-        AppendNumberTo(&r, deleted_files_kvp.first);
-        r.append(" ");
-        AppendNumberTo(&r, deleted_files_kvp.second);
-    }
-    for (size_t i = 0; i < new_files_.size(); i++) {
-        const FileMetaData& f = new_files_[i].second;
-        r.append("\n  AddFile: ");
-        AppendNumberTo(&r, new_files_[i].first);
-        r.append(" ");
-        AppendNumberTo(&r, f.number);
-        r.append(" ");
-        AppendNumberTo(&r, f.file_size);
-        r.append(" ");
-        r.append(f.smallest.DebugString());
-        r.append(" .. ");
-        r.append(f.largest.DebugString());
-    }
-    r.append("\n}\n");
-    return r;
-}
-
-}  // namespace leveldb
+```

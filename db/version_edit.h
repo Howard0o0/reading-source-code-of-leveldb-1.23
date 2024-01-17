@@ -34,30 +34,38 @@ class VersionEdit {
 
     void Clear();
 
-    /* 设置 Comparactor Name，默认为 leveldb.BytewiseComparator */
+    // 设置 Comparactor Name，默认为 leveldb.BytewiseComparator 
     void SetComparatorName(const Slice& name) {
         has_comparator_ = true;
         comparator_ = name.ToString();
     }
+
+    // 设置对应的 WAL 编号
     void SetLogNumber(uint64_t num) {
         has_log_number_ = true;
         log_number_ = num;
     }
+
+    // 设置前一个 WAL 编号
     void SetPrevLogNumber(uint64_t num) {
         has_prev_log_number_ = true;
         prev_log_number_ = num;
     }
+
+    // 设置下一个文件编号
     void SetNextFile(uint64_t num) {
         has_next_file_number_ = true;
         next_file_number_ = num;
     }
+
+    // 设置最大的 SequenceNumber
     void SetLastSequence(SequenceNumber seq) {
         has_last_sequence_ = true;
         last_sequence_ = seq;
     }
 
-    /* 设置 VersionEdit compact_pointers_，只会在 Compaction 的 SetupOtherInputs
-     * 以及 WriteSnapshot 中被调用 */
+    // 设置 level 层本次进行 Compaction 的最后一个 InternalKey
+    // 也就是下一次进行 Compaction 的起始 InternalKey。
     void SetCompactPointer(int level, const InternalKey& key) {
         compact_pointers_.push_back(std::make_pair(level, key));
     }
@@ -65,7 +73,8 @@ class VersionEdit {
     // Add the specified file at the specified number.
     // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
     // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
-    // 将一个 SST (的 MetaData)添加到 VersionEdit 中
+    // 
+    // 将一个 SST(MetaData)添加到 VersionEdit 中
     void AddFile(int level, uint64_t file, uint64_t file_size, const InternalKey& smallest,
                  const InternalKey& largest) {
         // 创建一个 FileMetaData 对象，
@@ -81,12 +90,18 @@ class VersionEdit {
     }
 
     // Delete the specified "file" from the specified "level".
+    //
+    // 从 level 层中移除一个 SST
     void RemoveFile(int level, uint64_t file) {
         deleted_files_.insert(std::make_pair(level, file));
     }
 
-    /* 将 VersionEdit 序列化成 string */
+    // VersionEdit 会被序列化成 string，然后写入到 MANIFEST 文件中。
+    // 或者从 MANIFEST 文件中读取出来，反序列化成 VersionEdit。
+
+    // 将 VersionEdit 序列化成 string
     void EncodeTo(std::string* dst) const;
+    // 将 string 反序列化成 VersionEdit
     Status DecodeFrom(const Slice& src);
 
     std::string DebugString() const;
