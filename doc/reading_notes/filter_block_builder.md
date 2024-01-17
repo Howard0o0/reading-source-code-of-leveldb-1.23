@@ -54,7 +54,7 @@ void FilterBlockBuilder::AddKey(const Slice& key) {
 
 ### FilterBlockBuilder::FilterBlockBuilder(const FilterPolicy*)
 
-先来看下 FilterBlockBuilder 的构造函数，它接收一个 FilterPolicy*，这个 FilterPolicy* 是一个接口，它定义了 Filter 的一些操作，比如`CreateFilter()`，`KeyMayMatch()`等。 关于 FilterPolicy 的详情，感兴趣的同学可以移步[TODO](TODO)。
+先来看下 FilterBlockBuilder 的构造函数，它接收一个 FilterPolicy*，这个 FilterPolicy* 是一个接口，它定义了 Filter 的一些操作，比如`CreateFilter()`，`KeyMayMatch()`等。 关于 FilterPolicy 的详情，感兴趣的同学可以移步[大白话解析LevelDB: FilterPolicy](https://blog.csdn.net/sinat_38293503/article/details/135660777)。
 
 FilterBlockBuilder 的构造函数啥也没做，只是将 FilterPolicy* 保存到成员变量里，供后续使用。
 
