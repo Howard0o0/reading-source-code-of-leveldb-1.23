@@ -1208,15 +1208,24 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::string* va
         LookupKey lkey(key, snapshot);
         if (mem->Get(lkey, value, &s)) {
             // Done
+            // 
+            // 从 MemTable 中查找成功，
+            // 不会触发 Compaction。
         } else if (imm != nullptr && imm->Get(lkey, value, &s)) {
             // Done
+            //
+            // 从 Immutable MemTable 中查找成功，
+            // 也不会触发 Compaction。
         } else {
+            // 如果查找 SST 了，有可能会触发 Compaction，
             s = current->Get(options, lkey, value, &stats);
             have_stat_update = true;
         }
         mutex_.Lock();
     }
 
+    // 如果是从 SST 中查找的 Key，并且该 SST 的 Seek 次数
+    // 已经超过了阈值，那么就会触发 Compaction。
     if (have_stat_update && current->UpdateStats(stats)) {
         MaybeScheduleCompaction();
     }
@@ -1617,6 +1626,9 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     }
     if (s.ok()) {
         impl->RemoveObsoleteFiles();
+        // 当数据库关闭时，可能有些还没完成的 Compaction。
+        // 所以打开数据库时尝试触发一次 Compaction，检查
+        // 下有没有未完成的 Compaction。
         impl->MaybeScheduleCompaction();
     }
     impl->mutex_.Unlock();

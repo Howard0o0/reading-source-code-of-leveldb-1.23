@@ -120,6 +120,10 @@ class DBIter : public Iterator {
 inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
     Slice k = iter_->key();
 
+    // 当一个 iterator 已读取的数据大小超过 bytes_until_read_sampling_ 后，
+    // 就会用当前 key 采一次样，查看这个 key.user_key 是否存在于多个(两个及以上) SST 
+    // 中。如果是的话，就把 key 所在的 SST.allowed_seeks 减 1，然后调用
+    // MaybeScheduleCompaction() 尝试触发 Compaction。
     size_t bytes_read = k.size() + iter_->value().size();
     while (bytes_until_read_sampling_ < bytes_read) {
         bytes_until_read_sampling_ += RandomCompactionPeriod();
