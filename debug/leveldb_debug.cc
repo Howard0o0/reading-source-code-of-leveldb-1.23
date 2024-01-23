@@ -40,7 +40,37 @@ void putData(leveldb::DB* db, leveldb::WriteOptions* writeOptions, int keyCount,
     }
 }
 
-int main() {
+#include "leveldb/db.h"
+#include "leveldb/write_batch.h"
+
+void debugManualCompaction() {
+    leveldb::DB* db;
+    leveldb::Options options;
+    options.create_if_missing = true;
+    leveldb::Status status = leveldb::DB::Open(options, "/tmp/testdb", &db);
+
+    if (!status.ok()) {
+        std::cerr << "Open DB failed: " << status.ToString() << std::endl;
+        return;
+    }
+
+    // Insert 100 keys
+    for (int i = 0; i < 100; ++i) {
+        std::string key = "key" + std::to_string(i);
+        std::string value = "value" + std::to_string(i);
+        db->Put(leveldb::WriteOptions(), key, value);
+    }
+
+    // Trigger manual compaction for keys from "key10" to "key50"
+    leveldb::Slice start_key = "key10";
+    leveldb::Slice end_key = "key50";
+    db->CompactRange(&start_key, &end_key);
+
+    delete db;
+}
+
+void insertKeys() {
+
     leveldb::DB* db;
     leveldb::Options options;
 
@@ -65,6 +95,10 @@ int main() {
     for (auto& t : threads) {
         t.join();
     }
+}
 
+int main() {
+
+    debugManualCompaction();
     return 0;
 }

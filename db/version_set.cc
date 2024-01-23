@@ -1927,6 +1927,13 @@ bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
     return true;
 }
 
+// 检查 internal_key 之后的范围，是否还能继续参与 Compaction。
+// 如果 level 层的 SST Compaction 完成之后，在 level+1 层
+// 产生了一些新的 SST 文件，这些新 SST 文件的范围可能会与 level+2
+// 层的 SST 文件有重叠，重叠的部分记为 overlapped_bytes_。如果
+// overlapped_bytes 超过阈值，那么本次 Compaction 范围就只能到 
+// internal_key，不能再往后了。因为 overlapped_bytes_ 过大的话，
+// 会给下一次的 Compaction 带来很大的负担。
 bool Compaction::ShouldStopBefore(const Slice& internal_key) {
     const VersionSet* vset = input_version_->vset_;
     // Scan to find earliest grandparent file that contains key.
