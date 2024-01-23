@@ -874,7 +874,7 @@ void DBImpl::BackgroundCompaction() {
     } else if (shutting_down_.load(std::memory_order_acquire)) {
         // Ignore compaction errors found during shutting down
         // 
-        // 如果当前正在关闭数据库，那错误就先不需要处理了，留到下次打开
+        // 如何当前正在关闭数据库，那错误就先不需要处理了，留到下次打开
         // 数据时再处理，先以最快的时间关闭数据库。
     } else {
         Log(options_.info_log, "Compaction error: %s", status.ToString().c_str());
