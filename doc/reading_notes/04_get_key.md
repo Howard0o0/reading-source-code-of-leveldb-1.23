@@ -64,8 +64,8 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::string* va
         mutex_.Lock();
     }
 
-    // 如果是从 SST 中查找的 Key，并且该 SST 的累计 Seek 次数已经超过了阈值，
-    // 那么就会触发 Compaction。
+    // 如果是从 SST 中查找的 Key，并且该 SST 的累计无效查找次数达到了阈值，
+    // 那么就将该 SST 标记为待 Compaction，并尝试触发一轮 Compaction。
     if (have_stat_update && current->UpdateStats(stats)) {
         MaybeScheduleCompaction();
     }
@@ -101,9 +101,10 @@ MemTable* imm = imm_;
 
 如果前面在`MemTable`和`Immutable MemTable`中都没找到目标 Key，就只能从`SST`中查找了。
 
-LevelDB 认为，如果某个`SST`被读取了很多次，就应该对其进行`Compaction`，将其与下层(level+1)的`SST`合并，这样就可以减少`SST`的数量。
+每个`SST`文件都有个`MetaData`，记录了该`SST`文件的一些元信息，比如该`SST`文件的最小`Key`、最大`Key`、该`SST`文件的序列号等等。
 
-那么减少`SST`的数量有什么好处呢？
+当我们需要查找一个特定的`Key`时，会先构造一个列表，通过读取`SST`的元信息，将可能包含这个`Key`的`SST`放入列表中，再逐个查找目标`Key`。
 
-1. 提高磁盘空间的使用效率。
+当我们对某个`SST`文件进行查找后，没有找到目标`Key`，就会把该`SST`的`allowed_seeks`减一。当`allowed_seeks`减到 0 时，就会将该`SST`标记为待`Compaction`。
 
+从`SST`中查找指定`Key`的函数为`Version::Get(const ReadOptions& options, const LookupKey& k, std::string* value, GetStats* stats)`，具体实现可移步参考[大白话解析LevelDB: Version](https://blog.csdn.net/sinat_38293503/article/details/135217578?spm=1001.2014.3001.5502#VersionGetconst_ReadOptions_const_LookupKey_key_stdstring_val_GetStats_stats_82)。
