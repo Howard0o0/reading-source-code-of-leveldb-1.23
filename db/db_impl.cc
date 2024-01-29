@@ -1282,6 +1282,10 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
 Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::string* value) {
     Status s;
     MutexLock l(&mutex_);
+
+    // 如果 options 中指定了 Snapshot，就使用该 Snapshot。
+    // 否则的话，隐式的创建一个最新的 Snapshot，从该 Snapshot 
+    // 中查询 Key。
     SequenceNumber snapshot;
     if (options.snapshot != nullptr) {
         snapshot = static_cast<const SnapshotImpl*>(options.snapshot)->sequence_number();
@@ -1289,6 +1293,11 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::string* va
         snapshot = versions_->LastSequence();
     }
 
+    // Key 可能存在 3 个地方:
+    //   - MemTable
+    //   - Immutable MemTable
+    //   - SST
+    // 这 3 个地方都需要查，先把它们的引用计数加 1，防止中途被销毁。
     MemTable* mem = mem_;
     MemTable* imm = imm_;
     Version* current = versions_->current();
@@ -1301,8 +1310,12 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::string* va
 
     // Unlock while reading from files and memtables
     {
+        // 进入查询流程了，对 Memtable, Immutable Memtable 和 SST 只会做读取操作，
+        // 不会做写操作，所以可以先释放锁，允许其他线程继续写入。
         mutex_.Unlock();
         // First look in the memtable, then in the immutable memtable (if any).
+        // 
+        // 基于 UserKey 和 Snapshot 构造一个 LookupKey，使用该 LookupKey 来做查询。
         LookupKey lkey(key, snapshot);
         if (mem->Get(lkey, value, &s)) {
             // Done
@@ -1322,8 +1335,10 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::string* va
         mutex_.Lock();
     }
 
-    // 如果是从 SST 中查找的 Key，并且该 SST 的 Seek 次数
-    // 已经超过了阈值，那么就会触发 Compaction。
+    // 如果是从 SST 中查找的 Key，并且查找过程中存在无效查找，也就是
+    // 查找了某个 SST，但是没有找到目标 Key，那么就会将该 SST 的
+    // allowed_seeks 减一。当 allowed_seeks 为 0 时，将该 SST
+    // 加入 Compaction 的等待列表中，并尝试触发 Compaction。
     if (have_stat_update && current->UpdateStats(stats)) {
         MaybeScheduleCompaction();
     }

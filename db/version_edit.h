@@ -19,7 +19,7 @@ struct FileMetaData {
     FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0) {}
 
     int refs;             /* 引用计数，表示当前 SSTable 被多少个 Version 所引用 */
-    int allowed_seeks;    /* 当前 SSTable 允许被 Seek 的次数 */
+    int allowed_seeks;    // 该 SST 允许被无效查找的次数。
     uint64_t number;      /* SSTable 文件记录编号 */
     uint64_t file_size;   /* SSTable 文件大小 */
     InternalKey smallest; /* 最小 Key 值 */

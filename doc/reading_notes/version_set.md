@@ -338,7 +338,9 @@ void Apply(VersionEdit* edit) {
         f->refs = 1;
 
         // 设置每个 New SST 文件的 allowed_seeks。
-        // allowed_seeks 表示该 SST 文件允许被查找的次数，每被读取一次，allowed_seeks 就减 1。
+        // allowed_seeks 表示该 SST 文件允许被无效查找的次数，无效查找是指
+        // 对该 SST 进行了查找，但是没有找到目标 Key。 
+        // 每被无效查找一次，allowed_seeks 就减 1。
         // allowed_seeks 为 0 时，该 SST 文件就会被加入到 compaction 调度中。
         // allowed_seeks 的计算方式如下: max(100, file_size / 16KB)。
         f->allowed_seeks = static_cast<int>((f->file_size / 16384U));

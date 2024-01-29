@@ -34,9 +34,11 @@ Compaction 的入口为`MaybeScheduleCompaction()`，`MaybeScheduleCompaction()`
 
 ### 第一处 读取 Key 的时候
 
-我们调用`DBImpl::Get()`读取某个`Key`的时候，LevelDB 会按照`MemTable => Immutable MemTable => SST`的顺序查找，如果在`MemTable`或者`Immutable MemTable`中找到了，那么就不会触发 Compaction。但如果`Key`是在 SST 中找到的，这个 SST 的`allowed_seeks`就会减 1。当`allowed_seeks`为 0 时，就表示这个 SST 需要`Compact`了。
+我们调用`DBImpl::Get()`读取某个`Key`的时候，LevelDB 会按照`MemTable => Immutable MemTable => SST`的顺序查找，如果在`MemTable`或者`Immutable MemTable`中找到了，那么就不会触发`Compaction`。
 
-所以在`DBImpl::Get()`中，如果是从 SST 中查找的 Key，就需要调用一下`MaybeScheduleCompaction()`，尝试触发 Compaction。
+但如果是从`SST`中查找的`Key`，并且查找过程中存在无效查找，也就是查找了某个`SST`，但是没有找到目标`Key`，那么就会将该`SST`的`allowed_seeks`减一。当 `allowed_seeks`为`0`时，将该`SST`加入`Compaction`的等待列表中，并尝试触发`Compaction`。
+
+所以在`DBImpl::Get()`中，如果是从`SST`中查找的 Key，就需要调用一下`MaybeScheduleCompaction()`，尝试触发`Compaction`。
 
 ```cpp
 Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::string* value) {

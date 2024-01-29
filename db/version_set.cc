@@ -407,7 +407,9 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
         static bool Match(void* arg, int level, FileMetaData* f) {
             State* state = reinterpret_cast<State*>(arg);
 
-            // 记录第一个被查找的 SST 文件，及其所在 level。
+            // 记录第一个被无效查找的 SST 文件，及其所在 level。
+            // 无效查找的意思是，对该 SST 进行了查找，但是该 SST 文件中没有包含目标 key。
+            // 将第一个无效查找的 SST 记录到 state->stats->seek_file。
             if (state->stats->seek_file == nullptr && state->last_file_read != nullptr) {
                 // We have had more than one seek for this read.  Charge the 1st
                 // file.
@@ -483,7 +485,7 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
 
     // 遍历所有与 user_key 有重叠的 SST 文件，
     // 依照 Latest SST 到 Oldest SST 的顺序，挨个对每个 SST 调用 State::Match(&state, level, fileMetaData) 方法。
-    // 如果 State::Match 返回 true，则停止调用。
+    // 如果 State::Match 返回 false，则停止调用。
     ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
 
     return state.found ? state.s : Status::NotFound(Slice());
@@ -492,7 +494,7 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
 bool Version::UpdateStats(const GetStats& stats) {
     FileMetaData* f = stats.seek_file;
     if (f != nullptr) {
-        // 将 SST 的 allowed_seeks 减 1，
+        // 如果有无效查找的 SST 文件，将其 allowed_seeks 减 1。
         // 当 allowed_seeks 减到 0 时，就将该 SST 加入到 compact 调度中。
         f->allowed_seeks--;
         if (f->allowed_seeks <= 0 && file_to_compact_ == nullptr) {

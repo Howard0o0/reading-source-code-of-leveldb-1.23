@@ -56,7 +56,8 @@ class Version {
 
     // 该方法通常在读操作后被调用，stats 中包含了 Get 操作所访问的 
     // SST 文件的 MetaData，MetaData 中有个成员 allowed_seeks, 表示该 SST
-    // 允许被访问的次数。每调用一次 UpdateStats(stats)，会将 allowed_seeks 减一，
+    // 允许被无效查找的次数。无效查找是指对该 SST 进行了查找，但没有找到目标 Key。
+    //  每调用一次 UpdateStats(stats)，会将 allowed_seeks 减一，
     // 当 allowed_seeks 为 0 时，会返回 true，
     // 表示该 SST 的访问频率过高，需要进行 Compaction。
     bool UpdateStats(const GetStats& stats);
@@ -211,7 +212,7 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
 
     // 遍历所有与 user_key 有重叠的 SST 文件，
     // 依照 Latest SST 到 Oldest SST 的顺序，挨个对每个 SST 调用 State::Match(&state, level, fileMetaData) 方法。
-    // 如果 State::Match 返回 true，则停止调用。
+    // 如果 State::Match 返回 false，则停止调用。
     ForEachOverlapping(state.saver.user_key, state.ikey, &state, &State::Match);
 
     return state.found ? state.s : Status::NotFound(Slice());

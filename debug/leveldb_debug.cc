@@ -97,8 +97,33 @@ void insertKeys() {
     }
 }
 
+void debugGetKeyValue() {
+
+    leveldb::DB* db;
+    leveldb::Options options;
+    options.create_if_missing = true;
+    leveldb::Status status = leveldb::DB::Open(options, "/tmp/testdb", &db);
+
+    if (!status.ok()) {
+        std::cerr << "Open DB failed: " << status.ToString() << std::endl;
+        return;
+    }
+
+    // Insert 100 keys
+    for (int i = 0; i < 100; ++i) {
+        std::string key = "key" + std::to_string(i);
+        std::string value = "value" + std::to_string(i);
+        db->Put(leveldb::WriteOptions(), key, value);
+    }
+
+    leveldb::Slice key("key10");
+    std::string value;
+    db->Get(leveldb::ReadOptions(), key, &value);
+}
+
 int main() {
 
-    debugManualCompaction();
+    // debugManualCompaction();
+    debugGetKeyValue();
     return 0;
 }

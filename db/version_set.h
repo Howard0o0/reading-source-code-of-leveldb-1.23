@@ -67,8 +67,8 @@ class Version {
     // return OK.  Else return a non-OK status.  Fills *stats.
     // REQUIRES: lock is not held
     // GetStats 用于记录 Get 操作的一些额外返回信息:
-    //   - key 所在 SST 的 MetaData
-    //   - key 所在 SST 的 level
+    //   - 第一个被无效查找的 SST
+    //   - 该无效查找 SST 所在的 level
     struct GetStats {
         FileMetaData* seek_file;
         int seek_file_level;
