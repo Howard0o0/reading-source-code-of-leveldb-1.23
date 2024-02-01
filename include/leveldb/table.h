@@ -37,9 +37,12 @@ class LEVELDB_EXPORT Table {
     // for the duration of the returned table's lifetime.
     //
     // *file must remain live while this Table is in use.
+    // 
+    // 工厂函数，给定一个打开的 SST 文件，构造一个 Table 对象并返回。
     static Status Open(const Options& options, RandomAccessFile* file, uint64_t file_size,
                        Table** table);
 
+    // 不允许拷贝.
     Table(const Table&) = delete;
     Table& operator=(const Table&) = delete;
 
@@ -48,6 +51,8 @@ class LEVELDB_EXPORT Table {
     // Returns a new iterator over the table contents.
     // The result of NewIterator() is initially invalid (caller must
     // call one of the Seek methods on the iterator before using it).
+    //
+    // 创建一个迭代器，用于遍历 SST 中的键值对。
     Iterator* NewIterator(const ReadOptions&) const;
 
     // Given a key, return an approximate byte offset in the file where
@@ -56,6 +61,8 @@ class LEVELDB_EXPORT Table {
     // bytes, and so includes effects like compression of the underlying data.
     // E.g., the approximate offset of the last key in the table will
     // be close to the file length.
+    //
+    // 返回一个 key 在 SST 中的大致偏移量。
     uint64_t ApproximateOffsetOf(const Slice& key) const;
 
    private:
@@ -64,11 +71,14 @@ class LEVELDB_EXPORT Table {
 
     static Iterator* BlockReader(void*, const ReadOptions&, const Slice&);
 
+    // 将构造函数私有化，只能通过工厂方法 Table::Open() 创建 Table 对象。
     explicit Table(Rep* rep) : rep_(rep) {}
 
     // Calls (*handle_result)(arg, ...) with the entry found after a call
     // to Seek(key).  May not make such a call if filter policy says
     // that key is not present.
+    //
+    // 从 SST 中查找某个 Key。如果这个 Key 找到了，则调用 handle_result 函数。
     Status InternalGet(const ReadOptions&, const Slice& key, void* arg,
                        void (*handle_result)(void* arg, const Slice& k, const Slice& v));
 

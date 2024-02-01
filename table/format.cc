@@ -70,6 +70,12 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options, const Block
 
     // Read the block contents as well as the type/crc footer.
     // See table_builder.cc for the code that built this structure.
+    //
+    // handle.offset() 是 Block 在文件中的偏移量，
+    // handle.size() 是 Block 的大小，
+    // kBlockTrailerSize 是 Block 的尾部信息长度，
+    // 包括一个字节的 Block 类型和 4 个字节的 crc 校验和。
+    // 根据 handle.offset() 和 handle.size() 可以从 SST 文件中读出 Block 的内容。
     size_t n = static_cast<size_t>(handle.size());
     char* buf = new char[n + kBlockTrailerSize];
     Slice contents;
@@ -78,12 +84,15 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options, const Block
         delete[] buf;
         return s;
     }
+    // 检查读出来的 block 的长度是否正确。
     if (contents.size() != n + kBlockTrailerSize) {
         delete[] buf;
         return Status::Corruption("truncated block read");
     }
 
     // Check the crc of the type and the block contents
+    // 
+    // 读出 block 的内容后，校验下 CRC 确保数据没有损坏。
     const char* data = contents.data();  // Pointer to where Read put the data
     if (options.verify_checksums) {
         const uint32_t crc = crc32c::Unmask(DecodeFixed32(data + n + 1));
@@ -95,6 +104,7 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options, const Block
         }
     }
 
+    // 查看 block 内容是否被压缩，如果被压缩了，就解压缩。
     switch (data[n]) {
         case kNoCompression:
             if (data != buf) {
