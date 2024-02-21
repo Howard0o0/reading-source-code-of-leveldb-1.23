@@ -145,13 +145,13 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size, Cache::Ha
 
 `env_->NewRandomAccessFile(fname, &file)`的实现细节可移步参考[大白话解析LevelDB: Env](https://blog.csdn.net/sinat_38293503/article/details/135310073#PosixEnvNewRandomAccessFileconst_stdstring_filename_RandomAccessFile_result_552)。
 
-`Table::Open(options_, file, file_size, &table)`的实现细节可移步参考[TODO]()。
+`Table::Open(options_, file, file_size, &table)`的实现细节可移步参考[大白话解析LevelDB: Table](https://blog.csdn.net/sinat_38293503/article/details/136222084?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22136222084%22%2C%22source%22%3A%22sinat_38293503%22%7D#TableOpen_29)。
 
 ### 从 SST 中查找指定的 Key
 
 找到`SST`后就好说了，从`SST`中查找指定的`Key`的逻辑甩给`Table::InternalGet`函数就行了。
 
-`t->InternalGet(options, k, arg, handle_result)`的实现细节可移步参考[TODO]()。
+`t->InternalGet(options, k, arg, handle_result)`的实现细节可移步参考[大白话解析LevelDB: Table](https://blog.csdn.net/sinat_38293503/article/details/136222084?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22136222084%22%2C%22source%22%3A%22sinat_38293503%22%7D#TableInternalGet_336)。
 
 ## TableCache::NewIterator
 
@@ -185,7 +185,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options, uint64_t file_numb
 }
 ```
 
-`table->NewIterator(options)`的实现细节可参考[TODO]()。
+`table->NewIterator(options)`的实现细节可参考[大白话解析LevelDB: Table](https://blog.csdn.net/sinat_38293503/article/details/136222084?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22136222084%22%2C%22source%22%3A%22sinat_38293503%22%7D#TableNewIterator_280)。
 
 
 ## TableCache::Evict
