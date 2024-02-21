@@ -198,9 +198,9 @@ void TwoLevelIterator::Seek(const Slice& target) {
 
 现在我们应该看出为什么要叫做`TwoLevelIterator`了，指的就是`index_iter`和`data_iter`这两个`Iterator`。
 
-`index_iter.Seek(target)`的实现可移步参考[TODO]()。
+`index_iter.Seek(target)`的实现可移步参考[大白话解析LevelDB: Block Iterator](https://blog.csdn.net/sinat_38293503/article/details/136221870?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22136221870%22%2C%22source%22%3A%22sinat_38293503%22%7D#BlockIterSeekconst_Slice_target_296)。
 
-`data_iter.Seek(target)`的实现可移步参考[TODO]()。
+`data_iter.Seek(target)`的实现可移步参考[大白话解析LevelDB: Block Iterator](https://blog.csdn.net/sinat_38293503/article/details/136221870?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22136221870%22%2C%22source%22%3A%22sinat_38293503%22%7D#BlockIterSeekconst_Slice_target_296)。
 
 `SkipEmptyDataBlocksForward()`的实现如下：
 
