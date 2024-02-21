@@ -293,7 +293,7 @@ void Table::ReadFilter(const Slice& filter_handle_value) {
 
 `Table::NewIterator`实际上就是创建一个`TwoLevelIterator`。
 
-`TwoLevelIterator`的实现可移步参考[TODO]()。
+`TwoLevelIterator`的实现可移步参考[大白话解析LevelDB: TwoLevelIterator](https://blog.csdn.net/sinat_38293503/article/details/136221944)。
 
 ```cpp
 Iterator* Table::NewIterator(const ReadOptions& options) const {
@@ -402,7 +402,23 @@ Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
 iiter->Seek(k);
 ```
 
-对`index_block->NewIterator`感兴趣的同学可以移步参考[TODO]()。
+`rep_->index_block->NewIterator(rep_->options.comparator)`的实现如下，属于工厂模式，将`Block::Iter`的创建细节封装了起来，对使用者透明(使用者不需要了解`Block::Iter`的实现细节)。
+
+```cpp
+Iterator* Block::NewIterator(const Comparator* comparator) {
+    if (size_ < sizeof(uint32_t)) {
+        return NewErrorIterator(Status::Corruption("bad block contents"));
+    }
+    const uint32_t num_restarts = NumRestarts();
+    if (num_restarts == 0) {
+        return NewEmptyIterator();
+    } else {
+        return new Iter(comparator, data_, restart_offset_, num_restarts);
+    }
+}
+```
+
+对`Block::Iter`的实现感兴趣的同学可以移步参考[大白话解析LevelDB: Block Iterator](https://blog.csdn.net/sinat_38293503/article/details/136221870)。
 
 ### 在对应的 Data Block 里查找目标 Key
 
