@@ -74,16 +74,33 @@ static inline const char* DecodeEntry(const char* p, const char* limit, uint32_t
 
 class Block::Iter : public Iterator {
    private:
+    // 构造 Iter 的时候传入一个 Comparator，决定了 Block 中的 key 的排序方式
     const Comparator* const comparator_;
+
+    // data_ 指向存放 Block 数据的地方
     const char* const data_;       // underlying block contents
+
+    // 通过 data_ + restarts_ 可得到重启点数组的起始位置
     uint32_t const restarts_;      // Offset of restart array (list of fixed32)
+
+    // 重启点的数量
     uint32_t const num_restarts_;  // Number of uint32_t entries in restart array
 
     // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
+    //
+    // 当前 Key-Value 在 data_ 中的偏移量
     uint32_t current_;
+
+    // 当前处在哪个重启点，通过 restarts_[restart_index_] 可拿到当前重启点
     uint32_t restart_index_;  // Index of restart block in which current_ falls
+
+    // 当前 Key-Value 中的 key
     std::string key_;
+
+    // 当前 Key-Value 中的 value
     Slice value_;
+
+    // 当前 Iterator 的状态
     Status status_;
 
     inline int Compare(const Slice& a, const Slice& b) const { return comparator_->Compare(a, b); }
@@ -130,6 +147,8 @@ class Block::Iter : public Iterator {
 
     void Next() override {
         assert(Valid());
+        // 将 current_ 移动到下一个 Key-Value 的位置，
+        // 并且解析出 Key。
         ParseNextKey();
     }
 
@@ -137,6 +156,8 @@ class Block::Iter : public Iterator {
         assert(Valid());
 
         // Scan backwards to a restart point before current_
+        //
+        // 把 restart_index_ 移动到 current_ 之前最近的一个重启点。
         const uint32_t original = current_;
         while (GetRestartPoint(restart_index_) >= original) {
             if (restart_index_ == 0) {
@@ -148,15 +169,22 @@ class Block::Iter : public Iterator {
             restart_index_--;
         }
 
+        // 把 current_ 移动到重启点的位置，
         SeekToRestartPoint(restart_index_);
         do {
             // Loop until end of current entry hits the start of original entry
+            //
+            // 将 current_ 不断向后移动，一直移动到原先 current_ 的前一个位置。
         } while (ParseNextKey() && NextEntryOffset() < original);
     }
 
     void Seek(const Slice& target) override {
         // Binary search in restart array to find the last restart point
         // with a key < target
+        //
+        // 理解 Prev() 的实现后，Seek() 的实现就比较容易理解了。
+        // 我们不能直接去找 target 的位置，而是需要先找到 target 
+        // 的那个重启点。用二分的方式查找这个重启点。
         uint32_t left = 0;
         uint32_t right = num_restarts_ - 1;
         int current_key_compare = 0;
@@ -165,19 +193,35 @@ class Block::Iter : public Iterator {
             // If we're already scanning, use the current position as a starting
             // point. This is beneficial if the key we're seeking to is ahead of
             // the current position.
+            //
+            // 如果当前 Iterator 已经指向某个有效的 Key 了，我们就可以利用这个 Key 来把
+            // 二分查找 target 重启点的范围缩小一些。
             current_key_compare = Compare(key_, target);
             if (current_key_compare < 0) {
                 // key_ is smaller than target
+                //
+                // 如果当前 Key 比 target 小，那么 target 重启点的位置一定在当前重启点的
+                // 右边，包括当前重启点。
                 left = restart_index_;
             } else if (current_key_compare > 0) {
+                // 如果当前 Key 比 target 大，那么 target 重启点的位置一定在当前重启点的
+                // 左边，包括当前重启点。
                 right = restart_index_;
             } else {
                 // We're seeking to the key we're already at.
+                //
+                // 如果当前 Key 已经是 target 了，那么就不需要再做其他操作了。
                 return;
             }
         }
 
+        // 二分查找 target 的重启点。
         while (left < right) {
+            // 找到 left 和 right 中间的那个重启点，看这个重启点的 Key 和 target 的大小关系。
+            //   - 如果 mid 重启点的 Key 比 target 小，那么 target 重启点的位置一定在 mid 
+            //     的右边，需要吧 left 移动到 mid 的位置。
+            //   - 如果 mid 重启点的 Key 比 target 大，那么 target 重启点的位置一定在 mid
+            //     的左边，需要把 right 移动到 mid 的位置。    
             uint32_t mid = (left + right + 1) / 2;
             uint32_t region_offset = GetRestartPoint(mid);
             uint32_t shared, non_shared, value_length;
@@ -202,6 +246,9 @@ class Block::Iter : public Iterator {
         // We might be able to use our current position within the restart
         // block. This is true if we determined the key we desire is in the
         // current block and is after than the current key.
+        //
+        // 找到 target 的重启点后，一步步向右移动 current_，直到找到第一个大于等于
+        // target 的 Key。
         assert(current_key_compare == 0 || Valid());
         bool skip_seek = left == restart_index_ && current_key_compare < 0;
         if (!skip_seek) {
@@ -219,12 +266,16 @@ class Block::Iter : public Iterator {
     }
 
     void SeekToFirst() override {
+        // 移动到一个重启点。
         SeekToRestartPoint(0);
+        // 解析出第一个 Key。
         ParseNextKey();
     }
 
     void SeekToLast() override {
+        // 移动到最后一个重启点。
         SeekToRestartPoint(num_restarts_ - 1);
+        // 不断向后移动 current_，直到最后一个 Key。
         while (ParseNextKey() && NextEntryOffset() < restarts_) {
             // Keep skipping
         }
@@ -240,9 +291,18 @@ class Block::Iter : public Iterator {
     }
 
     bool ParseNextKey() {
+
+        // 计算下一个 Key-Value 的偏移量
         current_ = NextEntryOffset();
+
+        // 找到下一个 Key-Value 的首地址
         const char* p = data_ + current_;
+
+        // limit 指向重启点数组的首地址
         const char* limit = data_ + restarts_;  // Restarts come right after data
+
+        // 如果当前 Key-Value 的偏移量超过了重启点数组的首地址，
+        // 表示已经没有 Next Key 了。
         if (p >= limit) {
             // No more entries to return.  Mark as invalid.
             current_ = restarts_;
@@ -251,15 +311,22 @@ class Block::Iter : public Iterator {
         }
 
         // Decode next entry
+        //
+        // 根据重启点来解析下一个 Key-Value
         uint32_t shared, non_shared, value_length;
         p = DecodeEntry(p, limit, &shared, &non_shared, &value_length);
         if (p == nullptr || key_.size() < shared) {
+            // 解析失败，将错误记录到 Iterator 的 status_ 里。
             CorruptionError();
             return false;
         } else {
+            // 解析成功，此时 p 指向了 Key 的 non_shared 部分，
+            // 将 shared 和 non_shared 部分拼接起来，得到当前 Key。
             key_.resize(shared);
             key_.append(p, non_shared);
             value_ = Slice(p + non_shared, value_length);
+
+            // 更新 restart_index_，找到下一个重启点
             while (restart_index_ + 1 < num_restarts_ &&
                    GetRestartPoint(restart_index_ + 1) < current_) {
                 ++restart_index_;
