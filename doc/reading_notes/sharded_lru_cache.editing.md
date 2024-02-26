@@ -187,33 +187,7 @@ void Release(Handle* handle) override {
 }
 ```
 
-我们可以看下`LRUHandle`的定义:
-
-```cpp
-struct LRUHandle {
-    void* value;
-    void (*deleter)(const Slice&, void* value);
-    LRUHandle* next_hash; // 如果两个缓存项的 hash 值相同，那么它们会被放到一个链表中，next_hash 就是链表中的下一个缓存项
-    LRUHandle* next; // 下一个缓存项
-    LRUHandle* prev; // 上一个缓存项
-    size_t charge;  // 该缓存项的大小
-    size_t key_length; // key 的长度
-    bool in_cache;     // 该缓存项是否还在 Cache 中
-    uint32_t refs;     // 引用次数 
-    uint32_t hash;     // key 的 hash 值
-    char key_data[1];  // key
-
-    Slice key() const {
-        // next_ is only equal to this if the LRU handle is the list head of an
-        // empty list. List heads never have meaningful keys.
-        assert(next != this);
-
-        return Slice(key_data, key_length);
-    }
-};
-```
-
-`LRUCache::Insert(key, hash, value, charge, deleter)`里会将`key`和`hash`生成一个`LRUHandle`缓存项，该缓存项里存储了非常多的信息。
+我们可以移步到[TODO]()看下`LRUHandle`的定义，`LRUCache::Insert(key, hash, value, charge, deleter)`里会将`key`和`hash`生成一个`LRUHandle`缓存项，该缓存项里存储了非常多的信息。
 
 所以只要拿到`handle`，就可以直接读取出该缓存项的`hash`值了，不需要重新计算。
 

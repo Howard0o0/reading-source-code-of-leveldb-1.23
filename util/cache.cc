@@ -43,15 +43,15 @@ namespace {
 struct LRUHandle {
     void* value;
     void (*deleter)(const Slice&, void* value);
-    LRUHandle* next_hash;
-    LRUHandle* next;
-    LRUHandle* prev;
-    size_t charge;  // TODO(opt): Only allow uint32_t?
-    size_t key_length;
-    bool in_cache;     // Whether entry is in the cache.
-    uint32_t refs;     // References, including cache reference, if present.
-    uint32_t hash;     // Hash of key(); used for fast sharding and comparisons
-    char key_data[1];  // Beginning of key
+    LRUHandle* next_hash; // 如果两个缓存项的 hash 值相同，那么它们会被放到一个链表中，next_hash 就是链表中的下一个缓存项
+    LRUHandle* next; // LRU 链表中的下一个(更新的)缓存项
+    LRUHandle* prev; // LRU 链表中的上一个(更旧的)缓存项
+    size_t charge;  // 该缓存项的大小
+    size_t key_length; // key 的长度
+    bool in_cache;     // 该缓存项是否还在 Cache 中
+    uint32_t refs;     // 引用次数 
+    uint32_t hash;     // key 的 hash 值
+    char key_data[1];  // key
 
     Slice key() const {
         // next_ is only equal to this if the LRU handle is the list head of an
@@ -67,6 +67,9 @@ struct LRUHandle {
 // table implementations in some of the compiler/runtime combinations
 // we have tested.  E.g., readrandom speeds up by ~5% over the g++
 // 4.4.3's builtin hashtable.
+//
+// LevelDB 实现了一个简单的 Hash 表，以 {key, hash} 作为 Hash 表的 Key，
+// 以 LRUHandle 作为 Hash 表的 Value。
 class HandleTable {
    public:
     HandleTable() : length_(0), elems_(0), list_(nullptr) { Resize(); }
@@ -183,12 +186,22 @@ class LRUCache {
     // Dummy head of LRU list.
     // lru.prev is newest entry, lru.next is oldest entry.
     // Entries have refs==1 and in_cache==true.
+    // 
+    // LRU 链表的 Dummy Head 节点。
+    // LRU 链表中的最新的缓存项是尾节点，最老的是头节点。
+    // LRU 链表中存放 refs == 1 && in_cache == true 的缓存项。
     LRUHandle lru_ GUARDED_BY(mutex_);
 
     // Dummy head of in-use list.
     // Entries are in use by clients, and have refs >= 2 and in_cache==true.
+    //
+    // in_use 链表的 Dummy Head 节点。
+    // in_use 链表中的缓存项是正在被客户端使用的，它们的引用次数 >= 2，in_cache==true。
     LRUHandle in_use_ GUARDED_BY(mutex_);
 
+    // Hash table of all cache entries.
+    //
+    // Cache 中所有缓存项的 Hash 表，用于快速查找缓存项。
     HandleTable table_ GUARDED_BY(mutex_);
 };
 
