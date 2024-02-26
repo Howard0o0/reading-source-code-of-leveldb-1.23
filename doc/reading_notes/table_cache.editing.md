@@ -47,7 +47,13 @@ TableCache::TableCache(const std::string& dbname, const Options& options, int en
 
 `TableCache`其实是一个包装类，核心是`cache_`。`TableCache`的所有接口都是对`cache_`的封装，方便使用。
 
-`NewLRUCache(entries)`是个典型的工厂模式，用于创建一个`LRUCache`对象。`LRUCache`的实现可移步参考[TODO](TODO)。
+`NewLRUCache(entries)`是个典型的工厂模式，用于创建一个`LRUCache`对象:
+
+```cpp
+Cache* NewLRUCache(size_t capacity) { return new ShardedLRUCache(capacity); }
+```
+
+`LRUCache`的实现可移步参考[TODO](TODO)。
 
 ```cpp
 Cache* NewLRUCache(size_t capacity) { return new ShardedLRUCache(capacity); }

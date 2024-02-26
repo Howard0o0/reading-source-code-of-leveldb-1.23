@@ -332,18 +332,23 @@ static const int kNumShards = 1 << kNumShardBits;
 
 class ShardedLRUCache : public Cache {
    private:
-    LRUCache shard_[kNumShards];
+    LRUCache shard_[kNumShards]; // Cache 内拥有 kNumShards(16) 个 LRUCache
     port::Mutex id_mutex_;
-    uint64_t last_id_;
+    uint64_t last_id_; // 最后一个插入到 Cache 的缓存项的 ID
 
     static inline uint32_t HashSlice(const Slice& s) { return Hash(s.data(), s.size(), 0); }
 
     static uint32_t Shard(uint32_t hash) { return hash >> (32 - kNumShardBits); }
 
    public:
+    // capacity: ShardedLRUCache 的总容量
+    // 根据总容量计算每个 shard 里的 LRUCache 的容量。
     explicit ShardedLRUCache(size_t capacity) : last_id_(0) {
+        // 计算 per_shard: 每个 shard 的容量。
+        // per_shard = ⌈capacity / kNumShards⌉ (向上取整)
         const size_t per_shard = (capacity + (kNumShards - 1)) / kNumShards;
         for (int s = 0; s < kNumShards; s++) {
+            // 给每个 shard 里的 LRUCache 设置容量。
             shard_[s].SetCapacity(per_shard);
         }
     }
