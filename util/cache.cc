@@ -355,18 +355,26 @@ class ShardedLRUCache : public Cache {
     ~ShardedLRUCache() override {}
     Handle* Insert(const Slice& key, void* value, size_t charge,
                    void (*deleter)(const Slice& key, void* value)) override {
+        // 计算 key 的 hash 值，然后根据 hash 值选择一个 shard，
+        // 将 key 插入到该 shard 的 LRUCache 中。
         const uint32_t hash = HashSlice(key);
         return shard_[Shard(hash)].Insert(key, hash, value, charge, deleter);
     }
     Handle* Lookup(const Slice& key) override {
+        // 使用与 Insert 相同的 Hash 算法计算 key 的 hash 值，
+        // 找到对应的 shard，然后在该 shard 的 LRUCache 中查找 key。
         const uint32_t hash = HashSlice(key);
         return shard_[Shard(hash)].Lookup(key, hash);
     }
     void Release(Handle* handle) override {
+        // Handle 中已经存好 hash 值了，不需要重新计算。
+        // 找到对应的 shard，然后让该 shard 的 LRUCache 释放 handle。
         LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
         shard_[Shard(h->hash)].Release(handle);
     }
     void Erase(const Slice& key) override {
+        // 使用与 Insert 相同的 Hash 算法计算 key 的 hash 值，
+        // 找到对应的 shard，然后让该 shard 的 LRUCache 移除 key。
         const uint32_t hash = HashSlice(key);
         shard_[Shard(hash)].Erase(key, hash);
     }

@@ -19,6 +19,8 @@
 
 namespace leveldb {
 
+// LevelDB 实现了一个类似于 MurMurHash 的非加密哈希算法。
+// 对于规律性较强的key，机分布特征表现更良好。
 uint32_t Hash(const char* data, size_t n, uint32_t seed) {
     // Similar to murmur hash
     const uint32_t m = 0xc6a4a793;

@@ -102,4 +102,181 @@ explicit ShardedLRUCache(size_t capacity) : last_id_(0) {
 }
 ```
 
-### 
+### ShardedLRUCache::Insert(const Slice& key, void* value, size_t charge, void (\*deleter)(const Slice& key, void* value)) 
+
+计算`key`的`hash`值，然后根据`hash`值选择一个`shard`，将`key`插入到该`shard`的`LRUCache`中。
+
+```cpp
+Handle* Insert(const Slice& key, void* value, size_t charge,
+                void (*deleter)(const Slice& key, void* value)) override {
+    // 计算 key 的 hash 值，然后根据 hash 值选择一个 shard，
+    // 将 key 插入到该 shard 的 LRUCache 中。
+    const uint32_t hash = HashSlice(key);
+    return shard_[Shard(hash)].Insert(key, hash, value, charge, deleter);
+}
+```
+
+`HashSlice(key)`的实现如下:
+
+```cpp
+static inline uint32_t HashSlice(const Slice& s) { return Hash(s.data(), s.size(), 0); }
+```
+
+继续看`Hash(s.data(), s.size(), 0)`的实现:
+
+LevelDB 在[MurMurHash 算法](https://en.wikipedia.org/wiki/MurmurHash)的基础上做了一点修改，主要是为了提高性能。
+
+相比于其他 Hash 算法， MurmurHash 对于规律性较强的 Key，随机分布特征表现更良好。
+
+```cpp
+uint32_t Hash(const char* data, size_t n, uint32_t seed) {
+    // Similar to murmur hash
+    const uint32_t m = 0xc6a4a793;
+    const uint32_t r = 24;
+    const char* limit = data + n;
+    uint32_t h = seed ^ (n * m);
+
+    // Pick up four bytes at a time
+    while (data + 4 <= limit) {
+        uint32_t w = DecodeFixed32(data);
+        data += 4;
+        h += w;
+        h *= m;
+        h ^= (h >> 16);
+    }
+
+    // Pick up remaining bytes
+    switch (limit - data) {
+        case 3:
+            h += static_cast<uint8_t>(data[2]) << 16;
+            FALLTHROUGH_INTENDED;
+        case 2:
+            h += static_cast<uint8_t>(data[1]) << 8;
+            FALLTHROUGH_INTENDED;
+        case 1:
+            h += static_cast<uint8_t>(data[0]);
+            h *= m;
+            h ^= (h >> r);
+            break;
+    }
+    return h;
+}
+```
+
+`LRUCache::Insert(key, hash, value, charge, deleter)`的实现可移步参考[TODO]();
+
+### ShardedLRUCache::Lookup(const Slice& key)
+
+```cpp
+Handle* Lookup(const Slice& key) override {
+    // 使用与 Insert 相同的 Hash 算法计算 key 的 hash 值，
+    // 找到对应的 shard，然后在该 shard 的 LRUCache 中查找 key。
+    const uint32_t hash = HashSlice(key);
+    return shard_[Shard(hash)].Lookup(key, hash);
+}
+```
+
+### ShardedLRUCache::Release(Handle* handle)
+
+```cpp
+void Release(Handle* handle) override {
+    // Handle 中已经存好 hash 值了，不需要重新计算。
+    // 找到对应的 shard，然后让该 shard 的 LRUCache 释放 handle。
+    LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
+    shard_[Shard(h->hash)].Release(handle);
+}
+```
+
+我们可以看下`LRUHandle`的定义:
+
+```cpp
+struct LRUHandle {
+    void* value;
+    void (*deleter)(const Slice&, void* value);
+    LRUHandle* next_hash; // 如果两个缓存项的 hash 值相同，那么它们会被放到一个链表中，next_hash 就是链表中的下一个缓存项
+    LRUHandle* next; // 下一个缓存项
+    LRUHandle* prev; // 上一个缓存项
+    size_t charge;  // 该缓存项的大小
+    size_t key_length; // key 的长度
+    bool in_cache;     // 该缓存项是否还在 Cache 中
+    uint32_t refs;     // 引用次数 
+    uint32_t hash;     // key 的 hash 值
+    char key_data[1];  // key
+
+    Slice key() const {
+        // next_ is only equal to this if the LRU handle is the list head of an
+        // empty list. List heads never have meaningful keys.
+        assert(next != this);
+
+        return Slice(key_data, key_length);
+    }
+};
+```
+
+`LRUCache::Insert(key, hash, value, charge, deleter)`里会将`key`和`hash`生成一个`LRUHandle`缓存项，该缓存项里存储了非常多的信息。
+
+所以只要拿到`handle`，就可以直接读取出该缓存项的`hash`值了，不需要重新计算。
+
+### ShardLRUCache::Erase(const Slice& key)
+
+```cpp
+void Erase(const Slice& key) override {
+    // 使用与 Insert 相同的 Hash 算法计算 key 的 hash 值，
+    // 找到对应的 shard，然后让该 shard 的 LRUCache 移除 key。
+    const uint32_t hash = HashSlice(key);
+    shard_[Shard(hash)].Erase(key, hash);
+}
+```
+
+### ShardedLRUCache::Value(Handle* handle)
+
+`handle`里已经存储了`value`，从`handle`中直接获取即可。
+
+```cpp
+void* Value(Handle* handle) override { return reinterpret_cast<LRUHandle*>(handle)->value; }
+```
+
+### ShardedLRUCache::NewId()
+
+返回一个新的数字，作为该 Cache 的 ID。
+
+```cpp
+uint64_t NewId() override {
+    MutexLock l(&id_mutex_);
+    return ++(last_id_);
+}
+```
+
+### ShardedLRUCache::Prune()
+
+没啥好说的，挨个调用每个 shard 里`LRUCache`的`LRUCache::Prune()`。
+
+```cpp
+void Prune() override {
+    for (int s = 0; s < kNumShards; s++) {
+        shard_[s].Prune();
+    }
+}
+```
+
+### ShardedLRUCache::TotalCharge()
+
+没啥好说的，挨个调用每个 shard 里`LRUCache`的`LRUCache::TotalCharge()`。
+
+```cpp
+size_t TotalCharge() const override {
+    size_t total = 0;
+    for (int s = 0; s < kNumShards; s++) {
+        total += shard_[s].TotalCharge();
+    }
+    return total;
+}
+```
+
+## 总结
+
+可以看到，`ShardedLRUCache`只是一个`LRUCache`的封装，包含多个`LRUCache` shard。
+
+插入、查找、删除等操作都是基于`LRUCache`的操作，只是在操作之前，需要先计算出`key`的`hash`值，然后根据`hash`值选择一个`shard`，再在该`shard`的`LRUCache`中进行操作。
+
+接下来我们移步看下`LRUCache`的实现: [TODO]()。
