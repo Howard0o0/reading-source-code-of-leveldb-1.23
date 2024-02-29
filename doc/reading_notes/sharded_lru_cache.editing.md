@@ -69,7 +69,9 @@ class LEVELDB_EXPORT Cache {
     // 返回一个新的数字，作为该 Cache 的 ID。
     virtual uint64_t NewId() = 0;
 
-    // 移除 Cache 中所有没有被使用的缓存项，也就是引用计数为 0 的那些。
+    // 移除 Cache 中所有没有正在被使用的缓存项。
+    // 比如在一些内存紧张的情况下，客户端可能会希望把 Cache 里没有正在被使用的缓存项移除，
+    // 腾出一些内存空间。
     virtual void Prune() {}
 
     // 计算 Cache 中所有缓存项的大小之和。

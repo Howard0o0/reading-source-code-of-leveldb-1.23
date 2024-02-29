@@ -128,7 +128,9 @@ class LEVELDB_EXPORT Cache {
     // encouraged to override the default implementation.  A future release of
     // leveldb may change Prune() to a pure abstract method.
     //
-    // 移除 Cache 中所有没有被使用的缓存项，也就是引用计数为 0 的那些。
+    // 移除 Cache 中所有没有正在被使用的缓存项，也就是引用计数为 1 的那些。
+    // 比如在一些内存紧张的情况下，客户端可能会希望把 Cache 里没有正在被使用的缓存项移除，
+    // 腾出一些内存空间。
     virtual void Prune() {}
 
     // Return an estimate of the combined charges of all elements stored in the
