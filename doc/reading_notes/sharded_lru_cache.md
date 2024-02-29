@@ -165,7 +165,7 @@ uint32_t Hash(const char* data, size_t n, uint32_t seed) {
 }
 ```
 
-`LRUCache::Insert(key, hash, value, charge, deleter)`的实现可移步参考[TODO]();
+`LRUCache::Insert(key, hash, value, charge, deleter)`的实现可移步参考[大白话解析LevelDB：LRUCache](https://blog.csdn.net/sinat_38293503/article/details/136381384?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22136381384%22%2C%22source%22%3A%22sinat_38293503%22%7D#LRUCacheInsertconst_Slice_key_uint32_t_hash_void_value_size_t_charge_void_deleterconst_Slice_key_void_value_454);
 
 ### ShardedLRUCache::Lookup(const Slice& key)
 
@@ -189,7 +189,7 @@ void Release(Handle* handle) override {
 }
 ```
 
-我们可以移步到[TODO]()看下`LRUHandle`的定义，`LRUCache::Insert(key, hash, value, charge, deleter)`里会将`key`和`hash`生成一个`LRUHandle`缓存项，该缓存项里存储了非常多的信息。
+我们可以移步到[大白话解析LevelDB：LRUCache](https://blog.csdn.net/sinat_38293503/article/details/136381384?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22136381384%22%2C%22source%22%3A%22sinat_38293503%22%7D#LRUHandle_179)看下`LRUHandle`的定义，`LRUCache::Insert(key, hash, value, charge, deleter)`里会将`key`和`hash`生成一个`LRUHandle`缓存项，该缓存项里存储了非常多的信息。
 
 所以只要拿到`handle`，就可以直接读取出该缓存项的`hash`值了，不需要重新计算。
 
@@ -255,4 +255,4 @@ size_t TotalCharge() const override {
 
 插入、查找、删除等操作都是基于`LRUCache`的操作，只是在操作之前，需要先计算出`key`的`hash`值，然后根据`hash`值选择一个`shard`，再在该`shard`的`LRUCache`中进行操作。
 
-接下来我们移步看下`LRUCache`的实现: [TODO]()。
+接下来我们移步看下`LRUCache`的实现: [大白话解析LevelDB：LRUCache](https://blog.csdn.net/sinat_38293503/article/details/136381384)。
