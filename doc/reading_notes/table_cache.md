@@ -53,11 +53,7 @@ TableCache::TableCache(const std::string& dbname, const Options& options, int en
 Cache* NewLRUCache(size_t capacity) { return new ShardedLRUCache(capacity); }
 ```
 
-`LRUCache`的实现可移步参考[TODO](TODO)。
-
-```cpp
-Cache* NewLRUCache(size_t capacity) { return new ShardedLRUCache(capacity); }
-```
+`LRUCache`的实现可移步参考[大白话解析LevelDB：ShardedLRUCache](https://blog.csdn.net/sinat_38293503/article/details/136381787)。
 
 使用工厂模式的好处是替换方便，如果我们想要替换成其他类型的`LRUCache`，比如`SingleLRUCache`，只需要修改`NewLRUCache`函数即可，而不需要每一处构造`LRUCache`的上层代码。
 
@@ -147,7 +143,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size, Cache::Ha
 ```
 `TableCache::FindTable`里的核心操作是`cache_->Lookup`与`cache_->Insert`。
 
-其实现细节可移步参考[TODO]()与[TODO]()。
+其实现细节可移步参考[ cache_->Lookup 的实现](https://blog.csdn.net/sinat_38293503/article/details/136381787?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22136381787%22%2C%22source%22%3A%22sinat_38293503%22%7D#ShardedLRUCacheLookupconst_Slice_key_169)与[ cache_->Insert 的实现](https://blog.csdn.net/sinat_38293503/article/details/136381787?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22136381787%22%2C%22source%22%3A%22sinat_38293503%22%7D#ShardedLRUCacheInsertconst_Slice_key_void_value_size_t_charge_void_deleterconst_Slice_key_void_value_106)。
 
 `env_->NewRandomAccessFile(fname, &file)`的实现细节可移步参考[大白话解析LevelDB: Env](https://blog.csdn.net/sinat_38293503/article/details/135310073#PosixEnvNewRandomAccessFileconst_stdstring_filename_RandomAccessFile_result_552)。
 
@@ -209,5 +205,5 @@ void TableCache::Evict(uint64_t file_number) {
 }
 ```
 
-`cache_->Erase(Slice(buf, sizeof(buf)))`的实现细节可移步参考[TODO]()。
+`cache_->Erase(Slice(buf, sizeof(buf)))`的实现细节可移步参考[大白话解析LevelDB：ShardedLRUCache](https://blog.csdn.net/sinat_38293503/article/details/136381787?csdn_share_tail=%7B%22type%22%3A%22blog%22%2C%22rType%22%3A%22article%22%2C%22rId%22%3A%22136381787%22%2C%22source%22%3A%22sinat_38293503%22%7D#ShardLRUCacheEraseconst_Slice_key_195)。
 
